@@ -1,0 +1,442 @@
+generator client {
+  provider = "prisma-client"
+  output   = "./generated"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                  String    @id @default(cuid())
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @default(now())
+  user_id             String
+  type                String?
+  provider            String?
+  provider_account_id String?
+  refresh_token       String?
+  access_token        String?
+  expires_at          DateTime?
+  token_type          String?
+  scope               String?
+  id_token            String?
+  session_state       String?
+  user                User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider, provider_account_id])
+  @@map("accounts")
+}
+
+model User {
+  id                    String               @id @default(cuid())
+  created_at            DateTime             @default(now())
+  updated_at            DateTime             @default(now())
+  deleted_at            DateTime?
+  status                Int?                 @default(1) @db.SmallInt
+  first_name            String?              @db.VarChar(255)
+  last_name             String?              @db.VarChar(255)
+  avatar                String?
+  about_me              String?
+  email                 String?              @unique
+  address               String?
+  password              String?              @db.VarChar(255)
+  type                  UserType?            @default(CLIENT)
+  name                  String?              @db.VarChar(255)
+  location              String?              @db.VarChar(255)
+  language              String?              @db.VarChar(100)
+  billing_id            String?
+  stripe_connect_id     String?
+  balance               Decimal?             @default(0.0) @db.Decimal(10, 2)
+  email_verified_at     DateTime?
+  bio                   String?
+  domain                String?              @unique
+  username              String?              @unique
+  phone_number          String?
+  country               String?
+  state                 String?
+  city                  String?
+  zip_code              String?
+  gender                String?
+  date_of_birth         DateTime?            @db.Date
+  approved_at           DateTime?
+  availability          String?
+  is_two_factor_enabled Int?                 @default(0)
+  two_factor_secret     String?
+  points                Int?                 @default(0)
+  device_type           String?
+  fcm_token             String?
+  sentMessages          Message[]            @relation("messageSender")
+  receivedNotifications Notification[]       @relation("notificationReceiver")
+  sentNotifications     Notification[]       @relation("notificationSender")
+  participants          Participant[]        @relation("participantUser")
+  accounts              Account[]
+  comments              Comment[]
+  feedbacks_given       Feedback[]           @relation("FeedbackAuthor")
+  liveStreams           live_streams[]
+  payment_transactions  PaymentTransaction[]
+  postCommunities       PostCommunity[]
+  postLikes             PostLike[]
+  created_requests      Request[]            @relation("SeekerRequests")
+  accepted_tasks        Request[]            @relation("VolunteerTasks")
+  role_users            RoleUser[]
+  ucodes                Ucode[]
+  user_payment_methods  UserPaymentMethod[]
+
+  @@map("users")
+}
+
+model Ucode {
+  id          String    @id @default(cuid())
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @default(now())
+  status      Int?      @default(1) @db.SmallInt
+  user_id     String?
+  token       String?
+  email       String?
+  expired_at  DateTime?
+  verified_at DateTime?
+  user        User?     @relation(fields: [user_id], references: [id])
+
+  @@map("ucodes")
+}
+
+model PostCommunity {
+  id           String     @id @default(uuid())
+  author_id    String
+  title        String?
+  content      String?
+  image_url    String?
+  location_tag String?
+  created_at   DateTime   @default(now())
+  updated_at   DateTime   @updatedAt
+  comments     Comment[]
+  user         User       @relation(fields: [author_id], references: [id])
+  likes        PostLike[]
+
+  @@map("post_communities")
+}
+
+model Comment {
+  id         String        @id @default(uuid())
+  post_id    String
+  author_id  String
+  content    String
+  created_at DateTime      @default(now())
+  parent_id  String?
+  user       User          @relation(fields: [author_id], references: [id])
+  parent     Comment?      @relation("CommentReplies", fields: [parent_id], references: [id])
+  replies    Comment[]     @relation("CommentReplies")
+  post       PostCommunity @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+}
+
+model PostLike {
+  id         String        @id @default(uuid())
+  post_id    String
+  user_id    String
+  created_at DateTime      @default(now())
+  post       PostCommunity @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  user       User          @relation(fields: [user_id], references: [id])
+
+  @@unique([post_id, user_id])
+  @@map("post_likes")
+}
+
+model Request {
+  id                 String          @id @default(uuid())
+  title              String
+  description        String
+  category           RequestCategory
+  location           String
+  estimated_duration String?
+  urgency_level      UrgencyLevel    @default(MEDIUM)
+  skills_needed      String[]
+  status             RequestStatus   @default(PENDING)
+  seeker_id          String
+  volunteer_id       String?
+  created_at         DateTime        @default(now())
+  updated_at         DateTime        @updatedAt
+  attachments        Attachment[]    @relation("RequestAttachments")
+  feedbacks          Feedback[]
+  seeker             User            @relation("SeekerRequests", fields: [seeker_id], references: [id])
+  volunteer          User?           @relation("VolunteerTasks", fields: [volunteer_id], references: [id])
+
+  @@map("requests")
+}
+
+model Feedback {
+  id          String   @id @default(uuid())
+  comment     String?
+  request_id  String
+  user_id     String
+  created_at  DateTime @default(now())
+  rating_type Boolean?
+  request     Request  @relation(fields: [request_id], references: [id])
+  user        User     @relation("FeedbackAuthor", fields: [user_id], references: [id])
+
+  @@map("feedbacks")
+}
+
+model Conversation {
+  id           String        @id @default(cuid())
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  messages     Message[]
+  participants Participant[]
+}
+
+model Participant {
+  id             String       @id @default(cuid())
+  conversationId String
+  userId         String
+  role           String?      @default("participant")
+  joinedAt       DateTime     @default(now())
+  lastReadAt     DateTime?
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation("participantUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  text           String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  status         MessageStatus @default(PENDING)
+  senderId       String
+  conversationId String
+  attachments    String[]
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User          @relation("messageSender", fields: [senderId], references: [id], onDelete: Cascade)
+}
+
+model NotificationEvent {
+  id            String         @id @default(uuid())
+  created_at    DateTime       @default(now())
+  updated_at    DateTime       @default(now()) @updatedAt
+  deleted_at    DateTime?
+  status        Int?           @default(1) @db.SmallInt
+  type          String?
+  text          String?
+  notifications Notification[]
+}
+
+model Notification {
+  id                    String             @id @default(cuid())
+  created_at            DateTime           @default(now())
+  updated_at            DateTime           @default(now()) @updatedAt
+  deleted_at            DateTime?
+  read_at               DateTime?
+  status                Int?               @default(1) @db.SmallInt
+  sender_id             String?
+  receiver_id           String?
+  notification_event_id String?
+  entity_id             String?
+  latest_news           Boolean            @default(true)
+  sign_of_disaster      Boolean            @default(true)
+  message_news          Boolean            @default(true)
+  notification_event    NotificationEvent? @relation(fields: [notification_event_id], references: [id])
+  receiver              User?              @relation("notificationReceiver", fields: [receiver_id], references: [id])
+  sender                User?              @relation("notificationSender", fields: [sender_id], references: [id])
+}
+
+model video_calls {
+  id          String    @id @default(uuid())
+  room_name   String    @unique
+  caller_id   String
+  receiver_id String
+  status      String    @default("pending")
+  started_at  DateTime  @default(now())
+  ended_at    DateTime?
+  duration    Int?
+
+  @@index([caller_id, receiver_id])
+}
+
+model live_streams {
+  id             String    @id @default(uuid())
+  room_name      String    @unique
+  host_id        String
+  title          String?
+  is_active      Boolean   @default(true)
+  recording_url  String?   // Auto-record houar por S3 link ekhane thakbe
+  status         String    @default("streaming") // streaming, completed, failed
+  created_at     DateTime  @default(now())
+  ended_at       DateTime?
+  
+  host           User      @relation(fields: [host_id], references: [id])
+}
+
+model Role {
+  id               String           @id @default(cuid())
+  created_at       DateTime         @default(now())
+  updated_at       DateTime         @default(now())
+  deleted_at       DateTime?
+  status           Int?             @default(1) @db.SmallInt
+  title            String?
+  name             String?
+  permission_roles PermissionRole[]
+  role_users       RoleUser[]
+  permissions      Permission[]     @relation("PermissionToRole")
+
+  @@map("roles")
+}
+
+model Permission {
+  id               String           @id @default(cuid())
+  created_at       DateTime         @default(now())
+  updated_at       DateTime         @default(now())
+  deleted_at       DateTime?
+  status           Int?             @default(1) @db.SmallInt
+  title            String?
+  action           String?
+  subject          String?
+  conditions       String?
+  fields           String?
+  permission_roles PermissionRole[]
+  roles            Role[]           @relation("PermissionToRole")
+
+  @@map("permissions")
+}
+
+model PermissionRole {
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @default(now())
+  permission_id String
+  role_id       String
+  permission    Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+  role          Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@id([permission_id, role_id])
+  @@map("permission_roles")
+}
+
+model RoleUser {
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  role_id    String
+  user_id    String
+  role       Role     @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([role_id, user_id])
+  @@map("role_users")
+}
+
+model UserPaymentMethod {
+  id                String    @id @default(cuid())
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @default(now())
+  deleted_at        DateTime?
+  user_id           String?
+  payment_method_id String?
+  checkout_id       String?
+  user              User?     @relation(fields: [user_id], references: [id])
+
+  @@map("user_payment_methods")
+}
+
+model PaymentTransaction {
+  id               String    @id @default(cuid())
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @default(now())
+  deleted_at       DateTime?
+  store_id         String?
+  user_id          String?
+  order_id         String?
+  type             String?   @default("order")
+  withdraw_via     String?   @default("wallet")
+  provider         String?
+  reference_number String?
+  status           String?   @default("pending")
+  raw_status       String?
+  amount           Decimal?
+  currency         String?
+  paid_amount      Decimal?
+  paid_currency    String?
+  user             User?     @relation(fields: [user_id], references: [id])
+
+  @@map("payment_transactions")
+}
+
+model Faq {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+  status     Int?      @default(1) @db.SmallInt
+  sort_order Int?      @default(0)
+  question   String?
+  answer     String?
+
+  @@map("faqs")
+}
+
+model Contact {
+  id           String    @id @default(cuid())
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @default(now())
+  deleted_at   DateTime?
+  first_name   String?
+  last_name    String?
+  email        String?
+  phone_number String?
+  message      String?
+
+  @@map("contacts")
+}
+
+model Attachment {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+  name       String?
+  type       String?
+  path       String?
+  request_id String
+  request    Request   @relation("RequestAttachments", fields: [request_id], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
+}
+
+enum UserType {
+  ADMIN
+  CLIENT
+  EDITOR
+  MAID
+  SEEKER
+  VOLUNTEER
+}
+
+enum RequestStatus {
+  PENDING
+  ACCEPTED
+  COMPLETED
+  CANCELLED
+}
+
+enum UrgencyLevel {
+  LOW
+  MEDIUM
+  HIGH
+  EMERGENCY
+}
+
+enum RequestCategory {
+  HURRICANE_PREPARATION
+  DURING_STORM
+  RECOVERY_CLEANUP
+  EMERGENCY_NON_911
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+  PENDING
+}

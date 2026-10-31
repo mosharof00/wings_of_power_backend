@@ -1,118 +1,53 @@
-# NestJS Backend Project
+# Wings of Power — API
 
-A robust backend application built with NestJS, featuring real-time capabilities, job queues, authentication, and Docker support.
+NestJS API for the Wings of Power student app and the teacher/admin dashboard.
 
-## 🛠 Technology Stack
+## Stack
 
-This project utilizes a modern stack of technologies:
+- NestJS 11 and TypeScript
+- PostgreSQL with Prisma
+- Redis and BullMQ (mail queue)
+- Socket.io
+- Passport JWT
 
-- **Core Framework:** [NestJS](https://nestjs.com/) (Node.js)
-- **Language:** [TypeScript](https://www.typescriptlang.org/)
-- **Database:** [PostgreSQL](https://www.postgresql.org/) with [Prisma ORM](https://www.prisma.io/)
-- **Caching & Queues:** [Redis](https://redis.io/) and [BullMQ](https://docs.bullmq.io/)
-- **Real-time:** [Socket.io](https://socket.io/) (WebSockets)
-- **Authentication:** Passport.js (JWT, OAuth2 via Google/Facebook)
-- **Payment Processing:** Stripe
-- **DevOps:** Docker & Docker Compose
-- **Monitoring:** Prometheus & Grafana
+Swagger UI: `http://localhost:4000/api/docs`
 
-## 🚀 Getting Started
+## Setup
 
-Follow these instructions to get the project up and running on your local machine.
-
-### Prerequisites
-
-Ensure you have the following installed:
-
-- [Node.js](https://nodejs.org/) (LTS recommended)
-- [Yarn](https://yarnpkg.com/)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop) (for Database & Redis)
-
-### 1. Installation
-
-Install the dependencies:
+Install [Node.js](https://nodejs.org/) (LTS), [Yarn](https://yarnpkg.com/), and Docker (for Postgres and Redis).
 
 ```bash
 yarn install
+cp .env.example .env
 ```
 
-### 2. Environment Configuration
+Fill in `.env`. Do not commit it. `JWT_EXPIRY` is seconds (`86400` is one day).
 
-1. Copy the example environment file:
-
-   ```bash
-   # Linux/Mac
-   cp .env.example .env
-
-   # Windows
-   copy .env.example .env
-   ```
-
-2. Open `.env` and populate it with your specific configurations (Database URL, Redis config, Stripe keys, etc.).
-
-### 3. Database Setup
-
-Start the required infrastructure (Postgres, Redis) using Docker:
+Start Postgres and Redis:
 
 ```bash
 docker compose up -d postgres redis
 ```
 
-Run database migrations and seed initial data:
+Apply migrations and load the dev seed:
 
 ```bash
-# Apply migrations
 npx prisma migrate dev
-
-# Seed database with dummy data
 yarn cmd seed
 ```
 
-### 4. Running the Application
+`yarn cmd seed` does not write product rows until T-BE-027.
 
-Choose a command to start the server:
+## Run
 
 ```bash
-# Development mode (Watch)
 yarn start:dev
+```
 
-# Development mode using SWC (Faster compilation)
-yarn start:dev-swc
+The API listens on `PORT` from `.env` (example: `http://localhost:4000`).
 
-# Production mode
+Production start, after `yarn build`:
+
+```bash
 yarn start:prod
-```
-
-The application will typically start on `http://localhost:4000` (check your `.env` PORT).
-
-### 5. Running with Docker Compose
-
-To run the full application stack including the backend app, database, and monitoring tools:
-
-```bash
-docker compose up
-```
-
-## 📚 API Documentation
-
-Verified API endpoints are available via Swagger:
-
-- **URL:** `http://localhost:4000/api/docs`
-
-## 💳 Stripe Configuration
-
-For handling payments:
-
-- **Webhook URL:** `http://{domain_name}/api/payment/stripe/webhook`
-
-**Local Development (Stripe CLI):**
-
-```bash
-stripe listen --forward-to localhost:4000/api/payment/stripe/webhook
-```
-
-**Test Trigger:**
-
-```bash
-stripe trigger payment_intent.succeeded
 ```
