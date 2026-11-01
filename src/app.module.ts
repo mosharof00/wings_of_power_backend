@@ -23,6 +23,7 @@ import { SchoolModule } from './modules/school/school.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProgressModule } from './modules/progress/progress.module';
+import { PointsModule } from './modules/points/points.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { ProgressModule } from './modules/progress/progress.module';
     UsersModule,
     UploadsModule,
     ProgressModule,
+    PointsModule,
   ],
   controllers: [AppController],
   providers: [
