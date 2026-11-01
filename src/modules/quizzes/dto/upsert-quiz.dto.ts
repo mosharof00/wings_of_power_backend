@@ -17,9 +17,15 @@ export class QuizOptionDto {
   @MinLength(1)
   label: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsBoolean()
-  isCorrect: boolean;
+  isCorrect?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  is_correct?: boolean;
 }
 
 export class QuizQuestionDto {
@@ -42,11 +48,12 @@ export class QuizQuestionDto {
   @IsString()
   explanation?: string;
 
-  @ApiProperty({ type: [QuizOptionDto] })
+  @ApiPropertyOptional({ type: [QuizOptionDto] })
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => QuizOptionDto)
-  options: QuizOptionDto[];
+  options?: QuizOptionDto[];
 }
 
 export class CheckpointQuizDto {

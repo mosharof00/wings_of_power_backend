@@ -7,5 +7,6 @@ import { TeacherQuizzesController } from './teacher-quizzes.controller';
   imports: [AuthModule],
   controllers: [TeacherQuizzesController],
   providers: [QuizzesService],
+  exports: [QuizzesService],
 })
 export class QuizzesModule {}

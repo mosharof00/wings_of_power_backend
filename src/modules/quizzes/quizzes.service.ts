@@ -1,9 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import {
-  QuestionType,
-  QuizKind,
-  Role,
-} from 'prisma/generated/client';
+import { QuestionType, QuizKind, Role } from 'prisma/generated/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuizQuestionDto, UpsertQuizDto } from './dto/upsert-quiz.dto';
 
@@ -129,7 +125,11 @@ export class QuizzesService {
         question.type === QuestionType.TRUE_FALSE;
       if (
         needsCorrect &&
-        !question.options?.some((option) => option.isCorrect)
+        !question.options?.some(
+          (option) =>
+            option.isCorrect === true ||
+            (option as { is_correct?: boolean }).is_correct === true,
+        )
       ) {
         throw new HttpException(
           'Question needs a correct option',
@@ -166,7 +166,10 @@ export class QuizzesService {
                   create: question.options.map((option, optionIndex) => ({
                     sort_order: optionIndex,
                     label: option.label.trim(),
-                    is_correct: option.isCorrect,
+                    is_correct: Boolean(
+                      option.isCorrect ??
+                        (option as { is_correct?: boolean }).is_correct,
+                    ),
                   })),
                 },
               }
@@ -187,6 +190,7 @@ export class QuizzesService {
       questions: quiz.questions.map((question) => ({
         id: question.id,
         sortOrder: question.sort_order,
+        sort_order: question.sort_order,
         type: question.type,
         prompt: question.prompt,
         hint: question.hint,
@@ -194,8 +198,10 @@ export class QuizzesService {
         options: question.options.map((option) => ({
           id: option.id,
           sortOrder: option.sort_order,
+          sort_order: option.sort_order,
           label: option.label,
           isCorrect: option.is_correct,
+          is_correct: option.is_correct,
         })),
       })),
     };
@@ -218,7 +224,7 @@ export class QuizzesService {
       where: { id: chapterId },
       include: { story: true },
     });
-    if (!chapter || chapter.story.deleted_at) {
+    if (!chapter || chapter.deleted_at || chapter.story.deleted_at) {
       throw new HttpException('Chapter not found', HttpStatus.NOT_FOUND);
     }
     if (chapter.story.school_id !== teacher.school_id) {
