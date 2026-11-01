@@ -1,20 +1,16 @@
 export function paginateResponse<T>(
-  data: T[],
+  items: T[],
   total: number,
   page: number,
   perPage: number,
 ) {
-  const totalPages = Math.ceil(total / perPage);
+  const lastPage = perPage > 0 ? Math.ceil(total / perPage) : 0;
 
   return {
-    data,
-    pagination: {
-      total,
-      page,
-      perPage,
-      totalPages,
-      hasNextPage: page < totalPages,
-      hasPrevPage: page > 1,
-    },
+    items,
+    total,
+    page,
+    perPage,
+    lastPage,
   };
 }

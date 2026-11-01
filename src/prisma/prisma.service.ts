@@ -1,37 +1,54 @@
 import {
-  Logger,
   Injectable,
-  OnModuleInit,
+  Logger,
   OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
+import { PrismaClient } from 'prisma/generated/client';
 import appConfig from '../config/app.config';
-import { PrismaClient } from 'prisma/generated';
+import { softDeleteExtension } from './middleware/softdelete.middleware';
+
+function createClient() {
+  const datasourceUrl = appConfig().database.url;
+
+  if (!datasourceUrl) {
+    throw new Error('DATABASE_URL is not defined');
+  }
+
+  return new PrismaClient({
+    datasources: {
+      db: {
+        url: datasourceUrl,
+      },
+    },
+    log: ['error'],
+  }).$extends(softDeleteExtension);
+}
+
+export type WingsPrismaClient = ReturnType<typeof createClient>;
+
+// Declaration merge keeps `prisma.user` on the Nest class that owns onModuleInit.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type, @typescript-eslint/no-unsafe-declaration-merging
+export interface PrismaService extends WingsPrismaClient {}
 
 @Injectable()
-export class PrismaService
-  extends PrismaClient
-  implements OnModuleInit, OnModuleDestroy
-{
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export class PrismaService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
+  private readonly client: WingsPrismaClient;
+
   constructor() {
-    const datasourceUrl = appConfig().database.url;
+    this.client = createClient();
 
-    if (!datasourceUrl) {
-      throw new Error('DATABASE_URL is not defined');
-    }
-
-    super({
-      datasources: {
-        db: {
-          url: datasourceUrl,
-        },
+    return new Proxy(this, {
+      get(target, prop, receiver) {
+        if (Reflect.has(target, prop)) {
+          return Reflect.get(target, prop, receiver);
+        }
+        const value = Reflect.get(target.client as object, prop);
+        return typeof value === 'function' ? value.bind(target.client) : value;
       },
-      log: ['error'],
     });
-
-    if (process.env.PRISMA_ENV === '1') {
-      this.logger.log('Prisma Middleware disabled');
-    }
   }
 
   async onModuleInit() {

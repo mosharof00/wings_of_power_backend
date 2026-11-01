@@ -1,12 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsEmail,
-  IsEnum,
-  IsOptional,
-  IsString,
-  MinLength,
-} from 'class-validator';
-import { UserType } from 'prisma/generated';
+import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateUserResDto {
   @ApiPropertyOptional({ example: 'John Doe' })
@@ -25,15 +18,6 @@ export class CreateUserResDto {
   @ApiProperty({ example: 'password123' })
   @MinLength(8, { message: 'Password should be minimum 8 characters' })
   password: string;
-
-  @ApiPropertyOptional({
-    enum: UserType,
-    default: UserType.SEEKER,
-  })
-  @ApiProperty({ example: UserType.SEEKER })
-  @IsOptional()
-  @IsEnum(UserType)
-  type?: UserType;
 }
 
 export class LoginUserResDto {
@@ -121,11 +105,8 @@ export class VolunteerListResDto {
   @ApiProperty({ example: 'john@example.com' })
   email: string;
 
-  @ApiProperty({
-    enum: UserType,
-    example: UserType.VOLUNTEER,
-  })
-  type: UserType;
+  @ApiProperty({ example: 'STUDENT' })
+  type: string;
 
   @ApiProperty({ example: '2023-10-27T10:00:00.000Z' })
   created_at: Date;

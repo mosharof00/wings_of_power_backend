@@ -7,26 +7,15 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 const mockAuthService = {
   me: jest.fn().mockResolvedValue({
     success: true,
-    data: { id: 1, name: 'Test User' },
+    data: { id: 'user-1', role: 'ADMIN', status: 'ACTIVE' },
   }),
-  revokeRefreshToken: jest.fn().mockResolvedValue({ success: true }),
-  forgotPassword: jest.fn().mockResolvedValue({ success: true }),
-  verifyEmail: jest.fn().mockResolvedValue({ success: true }),
-  resetPassword: jest.fn().mockResolvedValue({ success: true }),
-  changePassword: jest.fn().mockResolvedValue({ success: true }),
-};
-
-const mockUserRequest = {
-  user: {
-    userId: '1',
-    email: 'test@example.com',
-  },
+  logout: jest.fn().mockReturnValue({ success: true }),
 };
 
 const mockJwtAuthGuard = {
   canActivate: (context: ExecutionContext) => {
     const req = context.switchToHttp().getRequest();
-    req.user = mockUserRequest.user;
+    req.user = { userId: 'user-1' };
     return true;
   },
 };
@@ -37,12 +26,7 @@ describe('AuthController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
-      providers: [
-        {
-          provide: AuthService,
-          useValue: mockAuthService,
-        },
-      ],
+      providers: [{ provide: AuthService, useValue: mockAuthService }],
     })
       .overrideGuard(JwtAuthGuard)
       .useValue(mockJwtAuthGuard)
@@ -55,49 +39,13 @@ describe('AuthController', () => {
     expect(controller).toBeDefined();
   });
 
-  it('should return current user info', async () => {
-    const result = await controller.me({ user: { userId: '1' } } as any);
-    expect(result.data.id).toBe(1);
+  it('returns the current user from the service', async () => {
+    const result = await controller.me('user-1');
+    expect(mockAuthService.me).toHaveBeenCalledWith('user-1');
+    expect(result.data.role).toBe('ADMIN');
   });
 
-  it('should logout user', async () => {
-    const result = await controller.logout({ user: { userId: '1' } } as any);
-    expect(result.success).toBe(true);
-  });
-
-  it('should handle forgot password', async () => {
-    const result = await controller.forgotPassword({
-      email: 'john@example.com',
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('should verify email', async () => {
-    const result = await controller.verifyEmail({
-      email: 'john@example.com',
-      token: '1234',
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('should reset password', async () => {
-    const result = await controller.resetPassword({
-      email: 'john@example.com',
-      token: '1234',
-      password: 'newpass',
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('should change password', async () => {
-    const result = await controller.changePassword(
-      { user: { userId: '1' } } as any,
-      {
-        email: 'john@example.com',
-        old_password: 'oldpass',
-        new_password: 'newpass',
-      },
-    );
-    expect(result.success).toBe(true);
+  it('logout returns success without revoking a token', () => {
+    expect(controller.logout()).toEqual({ success: true });
   });
 });

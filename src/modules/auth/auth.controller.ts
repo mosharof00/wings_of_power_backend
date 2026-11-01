@@ -1,192 +1,133 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpException,
-  HttpStatus,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiBody,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
-import { Request } from 'express';
+import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { GetUser } from './decorators/get-user.decorator';
 import {
   ChangePasswordDto,
   ForgotPasswordDto,
+  RegisterAdminDto,
   ResetPasswordDto,
-} from './dto/create-user-res.dto';
+  SchoolProfileDto,
+  StaffLoginDto,
+  VerifyEmailDto,
+} from './dto/staff-auth.dto';
+import { AcceptInviteDto } from './dto/accept-invite.dto';
+import {
+  JoinCodeDto,
+  RegisterStudentDto,
+  SelectHeroDto,
+  StudentLoginDto,
+} from './dto/student-auth.dto';
 import { AuthService } from './auth.service';
-import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(private readonly authService: AuthService) {}
 
-  @ApiOperation({ summary: 'Get current user details' })
-  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Register an admin and email a verification code' })
+  @Post('admin/register')
+  registerAdmin(@Body() dto: RegisterAdminDto) {
+    return this.authService.registerAdmin(dto);
+  }
+
+  @ApiOperation({ summary: 'Verify an admin email with the 6-digit code' })
+  @Post('admin/verify-email')
+  verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.authService.verifyEmail(dto);
+  }
+
+  @ApiOperation({ summary: 'Admin login' })
+  @Post('admin/login')
+  loginAdmin(@Body() dto: StaffLoginDto) {
+    return this.authService.loginAdmin(dto);
+  }
+
+  @ApiOperation({ summary: 'Email a staff password-reset code' })
+  @Post('admin/forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @ApiOperation({ summary: 'Set a new staff password with a reset code' })
+  @Post('admin/reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
+  }
+
+  @ApiOperation({ summary: 'Create the school profile for this deployment' })
   @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('school')
+  createSchool(
+    @GetUser('userId') userId: string,
+    @Body() dto: SchoolProfileDto,
+  ) {
+    return this.authService.createSchool(userId, dto);
+  }
+
+  @ApiOperation({ summary: 'Teacher or admin login' })
+  @Post('staff/login')
+  loginStaff(@Body() dto: StaffLoginDto) {
+    return this.authService.loginStaff(dto);
+  }
+
+  @ApiOperation({ summary: 'Accept a teacher invite and create the account' })
+  @Post('teacher/accept-invite')
+  acceptInvite(@Body() dto: AcceptInviteDto) {
+    return this.authService.acceptInvite(dto);
+  }
+
+  @ApiOperation({ summary: 'Preview a class from its join code' })
+  @Post('student/join-code')
+  joinCode(@Body() dto: JoinCodeDto) {
+    return this.authService.joinCode(dto);
+  }
+
+  @ApiOperation({ summary: 'Register a student into a pending class' })
+  @Post('student/register')
+  registerStudent(@Body() dto: RegisterStudentDto) {
+    return this.authService.registerStudent(dto);
+  }
+
+  @ApiOperation({ summary: 'Student login' })
+  @Post('student/login')
+  loginStudent(@Body() dto: StudentLoginDto) {
+    return this.authService.loginStudent(dto);
+  }
+
+  @ApiOperation({ summary: 'Select a starter or unlocked hero' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('student/select-hero')
+  selectHero(@GetUser('userId') userId: string, @Body() dto: SelectHeroDto) {
+    return this.authService.selectHero(userId, dto);
+  }
+
+  @ApiOperation({ summary: 'Current user' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @Get('me')
-  async me(@Req() req: Request) {
-    try {
-      const user_id = req.user.userId;
-
-      const response = await this.authService.me(user_id);
-
-      return response;
-    } catch {
-      return {
-        success: false,
-        message: 'Failed to fetch user details',
-      };
-    }
+  me(@GetUser('userId') userId: string) {
+    return this.authService.me(userId);
   }
 
-  @ApiOperation({ summary: 'Forgot password' })
-  @ApiBody({
-    type: ForgotPasswordDto,
-  })
-  @Post('forgot-password')
-  async forgotPassword(@Body() data: { email: string }) {
-    try {
-      const email = data.email;
-      if (!email) {
-        throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
-      }
-      return await this.authService.forgotPassword(email);
-    } catch {
-      return {
-        success: false,
-        message: 'Something went wrong',
-      };
-    }
-  }
-
-  @ApiOperation({ summary: 'Verify email' })
-  @Post('verify-email')
-  async verifyEmail(@Body() data: VerifyEmailDto) {
-    try {
-      const email = data.email;
-      const token = data.token;
-      if (!email) {
-        throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
-      }
-      if (!token) {
-        throw new HttpException('Token not provided', HttpStatus.UNAUTHORIZED);
-      }
-      return await this.authService.verifyEmail({
-        email: email,
-        token: token,
-      });
-    } catch {
-      return {
-        success: false,
-        message: 'Failed to verify email',
-      };
-    }
-  }
-
-  @ApiOperation({ summary: 'Reset password' })
-  @ApiBody({
-    type: ResetPasswordDto,
-  })
-  @Post('reset-password')
-  async resetPassword(
-    @Body() data: { email: string; token: string; password: string },
-  ) {
-    try {
-      const email = data.email;
-      const token = data.token;
-      const password = data.password;
-      if (!email) {
-        throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
-      }
-      if (!token) {
-        throw new HttpException('Token not provided', HttpStatus.UNAUTHORIZED);
-      }
-      if (!password) {
-        throw new HttpException(
-          'Password not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      return await this.authService.resetPassword({
-        email: email,
-        token: token,
-        password: password,
-      });
-    } catch {
-      return {
-        success: false,
-        message: 'Something went wrong',
-      };
-    }
-  }
-
-  @ApiOperation({ summary: 'Change password' })
-  @ApiBody({
-    type: ChangePasswordDto,
-  })
-  @ApiOkResponse({
-    description: 'Password changed successfully',
-    type: ChangePasswordDto,
-  })
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @Post('change-password')
-  async changePassword(
-    @Req() req: Request,
-    @Body() data: { email: string; old_password: string; new_password: string },
-  ) {
-    try {
-      const user_id = req.user.userId;
-      const oldPassword = data.old_password;
-      const newPassword = data.new_password;
-      if (!oldPassword) {
-        throw new HttpException(
-          'Old password not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      if (!newPassword) {
-        throw new HttpException(
-          'New password not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      return await this.authService.changePassword({
-        user_id: user_id,
-        oldPassword: oldPassword,
-        newPassword: newPassword,
-      });
-    } catch {
-      return {
-        success: false,
-        message: 'Failed to change password',
-      };
-    }
-  }
-
+  @ApiOperation({ summary: 'Stateless logout' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post('logout')
-  async logout(@Req() req: Request) {
-    try {
-      const userId = req.user.userId;
-      const response = await this.authService.revokeRefreshToken(userId);
-      return response;
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
+  logout() {
+    return this.authService.logout();
+  }
+
+  @ApiOperation({ summary: 'Change the current password' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch('password')
+  changePassword(
+    @GetUser('userId') userId: string,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(userId, dto);
   }
 }

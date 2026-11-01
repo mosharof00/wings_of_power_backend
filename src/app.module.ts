@@ -17,6 +17,11 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AbilityModule } from './ability/ability.module';
 import { RepositoryModule } from './common/repository/repository.module';
 import { MailModule } from './mail/mail.module';
+import { ContentModule } from './modules/content/content.module';
+import { QuizzesModule } from './modules/quizzes/quizzes.module';
+import { SchoolModule } from './modules/school/school.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -68,6 +73,11 @@ import { MailModule } from './mail/mail.module';
     AuthModule,
     AbilityModule,
     MailModule,
+    SchoolModule,
+    ContentModule,
+    QuizzesModule,
+    UsersModule,
+    UploadsModule,
   ],
   controllers: [AppController],
   providers: [

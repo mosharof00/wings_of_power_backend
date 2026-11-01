@@ -1,23 +1,19 @@
-<p>Hey <%= member.fname %>
+<p>Hello,</p>
+<p>
+  <%= user.fname %> (<%= user.email %>) invited you to join <%= process.env.APP_NAME %> as staff.
 </p>
-<p>You have been invited by <%= user.fname %>
-    <%= user.lname %> (<%= user.email %>) to join <%= process.env.APP_NAME %>.</p>
-
-<%= process.env.APP_NAME %> lets you manage all your customer conversations conveniently from one place while
-  collaborating with your team.
-
-  <p>
-    <a href='<%= url %>'>Accept Invitation</a>
-  </p>
-
-  <p>
-    Regards,
-    <br />
-    <%= process.env.APP_NAME %>
-  </p>
-  <hr />
-  <p>
-    If you're having trouble clicking the "Accept Invitation" button, copy and
-    paste the URL below into your web browser:
-    <%= url %>
-  </p>
+<p>This invite expires in 7 days. Use this token to set your password:</p>
+<p><%= member.token %></p>
+<p>
+  <a href="<%= url %>">Accept invitation</a>
+</p>
+<p>
+  Regards,
+  <br />
+  <%= process.env.APP_NAME %>
+</p>
+<hr />
+<p>
+  If the button does not open, copy this link into your browser:
+  <%= url %>
+</p>

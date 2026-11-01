@@ -1,0 +1,7 @@
+# wings_of_power_backend — Cursor index exclusions
+prisma/generated/**
+dist/**
+coverage/**
+yarn.lock
+*.lock
+

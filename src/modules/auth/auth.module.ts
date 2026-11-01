@@ -4,6 +4,8 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
+import { ActiveStudentGuard } from '../../common/guard/role/active-student.guard';
+import { RolesGuard } from '../../common/guard/role/roles.guard';
 import { AuthController } from './auth.controller';
 import appConfig from '../../config/app.config';
 import { PrismaModule } from '../../prisma/prisma.module';
@@ -26,7 +28,13 @@ import { MailModule } from '../../mail/mail.module';
     MailModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, LocalStrategy, JwtStrategy],
-  exports: [AuthService],
+  providers: [
+    AuthService,
+    LocalStrategy,
+    JwtStrategy,
+    RolesGuard,
+    ActiveStudentGuard,
+  ],
+  exports: [AuthService, RolesGuard, ActiveStudentGuard],
 })
 export class AuthModule {}

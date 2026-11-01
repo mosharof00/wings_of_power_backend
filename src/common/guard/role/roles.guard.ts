@@ -6,9 +6,9 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { UserRepository } from '../../../common/repository/user/user.repository';
 import { ROLES_KEY } from './roles.decorator';
 import { Role } from './role.enum';
-import { UserRepository } from '../../../common/repository/user/user.repository';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -23,25 +23,24 @@ export class RolesGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    if (!requiredRoles) {
+    if (!requiredRoles?.length) {
       return true;
     }
 
-    const { user } = context.switchToHttp().getRequest();
-
-    const userDetails = await this.userRepository.getUserDetails(user.userId);
-
-    if (!userDetails) {
-      return false;
+    const requestUser = context.switchToHttp().getRequest().user;
+    if (!requestUser?.userId) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
     }
 
-    if (requiredRoles.some((role) => userDetails.type?.includes(role))) {
-      return true;
-    } else {
-      throw new HttpException(
-        'You do not have permission to access this resource',
-        HttpStatus.FORBIDDEN,
-      );
+    const user = await this.userRepository.getUserDetails(requestUser.userId);
+    if (!user) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
     }
+
+    const allowed = requiredRoles.some((role) => user.role === role);
+    if (!allowed) {
+      throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+    }
+    return true;
   }
 }

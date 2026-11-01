@@ -1,71 +1,85 @@
-import { ArrayHelper } from '../../common/helper/array.helper';
-import { DateHelper } from '../../common/helper/date.helper';
+import { Prisma, PrismaClient } from 'prisma/generated/client';
 
-const models = ['Note'];
-/**
- * prisma Soft delete middleware
- * @param params
- * @param next
- * @returns
- */
-export async function SoftdeleteMiddleware(params, next) {
-  const date = DateHelper.now();
-  // Check incoming query type
-  // if (params.model == 'Note') {
-  if (ArrayHelper.inArray(params.model, models)) {
-    // read soft deleted data
-    if (params.action === 'findUnique' || params.action === 'findFirst') {
-      // Change to findFirst - you cannot filter
-      // by anything except ID / unique with findUnique
-      params.action = 'findFirst';
-      // Add 'deleted_at' filter
-      // ID filter maintained
-      params.args.where['deleted_at'] = null;
-    }
-    if (params.action === 'findMany') {
-      // Find many queries
-      if (params.args.where) {
-        if (params.args.where.deleted_at == undefined) {
-          // Exclude deleted_at records if they have not been explicitly requested
-          params.args.where['deleted_at'] = null;
-        }
-      } else {
-        params.args['where'] = { deleted_at: null };
-      }
-    }
+const SOFT_DELETE_MODELS = new Set([
+  'User',
+  'Story',
+  'Chapter',
+  'Class',
+  'Badge',
+  'KindnessCornerItem',
+  'Notification',
+]);
 
-    if (params.action == 'update') {
-      // Change to updateMany - you cannot filter
-      // by anything except ID / unique with findUnique
-      params.action = 'updateMany';
-      // Add 'deleted' filter
-      // ID filter maintained
-      params.args.where['deleted_at'] = false;
-    }
-    if (params.action == 'updateMany') {
-      if (params.args.where != undefined) {
-        params.args.where['deleted_at'] = false;
-      } else {
-        params.args['where'] = { deleted_at: false };
-      }
-    }
+const READ_OPERATIONS = new Set([
+  'findFirst',
+  'findFirstOrThrow',
+  'findMany',
+  'count',
+  'aggregate',
+  'groupBy',
+]);
 
-    // softdelete
-    if (params.action == 'delete') {
-      // Delete queries
-      // Change action to an update
-      params.action = 'update';
-      params.args['data'] = { deleted_at: date };
-    }
-    if (params.action == 'deleteMany') {
-      // Delete many queries
-      params.action = 'updateMany';
-      if (params.args.data != undefined) {
-        params.args.data['deleted_at'] = true;
-      } else {
-        params.args['data'] = { deleted_at: date };
-      }
-    }
-  }
-  return next(params);
+function modelDelegate(client: PrismaClient, model: string) {
+  const key = model.charAt(0).toLowerCase() + model.slice(1);
+  return client[key as keyof PrismaClient] as {
+    findFirst: (args: object) => Promise<unknown>;
+    update: (args: object) => Promise<unknown>;
+    updateMany: (args: object) => Promise<unknown>;
+  };
 }
+
+export const softDeleteExtension = Prisma.defineExtension((client) => {
+  return client.$extends({
+    name: 'softDelete',
+    query: {
+      $allModels: {
+        async $allOperations({ model, operation, args, query }) {
+          if (!SOFT_DELETE_MODELS.has(model)) {
+            return query(args);
+          }
+
+          const delegate = modelDelegate(client as PrismaClient, model);
+
+          if (operation === 'delete') {
+            const where = (args as { where: object }).where;
+            return delegate.update({
+              where,
+              data: { deleted_at: new Date() },
+            });
+          }
+
+          if (operation === 'deleteMany') {
+            const where = (args as { where?: object }).where;
+            return delegate.updateMany({
+              where,
+              data: { deleted_at: new Date() },
+            });
+          }
+
+          if (operation === 'findUnique' || operation === 'findUniqueOrThrow') {
+            const readArgs = args as { where?: object };
+            const row = await delegate.findFirst({
+              ...readArgs,
+              where: { deleted_at: null, ...readArgs.where },
+            });
+            if (!row && operation === 'findUniqueOrThrow') {
+              throw new Prisma.PrismaClientKnownRequestError(
+                `No ${model} found`,
+                { code: 'P2025', clientVersion: Prisma.prismaVersion.client },
+              );
+            }
+            return row;
+          }
+
+          if (READ_OPERATIONS.has(operation)) {
+            const readArgs = args as { where?: object };
+            readArgs.where = { deleted_at: null, ...readArgs.where };
+            return query(args);
+          }
+
+          return query(args);
+        },
+      },
+    },
+  });
+});
