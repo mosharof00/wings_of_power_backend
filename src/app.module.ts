@@ -22,6 +22,7 @@ import { QuizzesModule } from './modules/quizzes/quizzes.module';
 import { SchoolModule } from './modules/school/school.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { UsersModule } from './modules/users/users.module';
+import { ProgressModule } from './modules/progress/progress.module';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { UsersModule } from './modules/users/users.module';
     QuizzesModule,
     UsersModule,
     UploadsModule,
+    ProgressModule,
   ],
   controllers: [AppController],
   providers: [
