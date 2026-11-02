@@ -27,7 +27,7 @@ import { ReportsService } from './reports.service';
 @Roles(Role.STUDENT)
 @Controller('safe-space')
 export class StudentReportsController {
-  constructor(private readonly reportsService: ReportsService) {}
+  constructor(private readonly reportsService: ReportsService) { }
 
   @ApiOperation({ summary: 'Submit a safe space report' })
   @Post('reports')
