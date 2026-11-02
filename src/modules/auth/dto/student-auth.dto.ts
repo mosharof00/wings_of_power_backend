@@ -57,6 +57,13 @@ export class StudentLoginDto {
   remember?: boolean;
 }
 
+export class StudentForgotPasswordDto {
+  @ApiPropertyOptional({ example: 'wingkid' })
+  @IsOptional()
+  @IsString()
+  username?: string;
+}
+
 export class SelectHeroDto {
   @ApiProperty({ example: 'hero-id' })
   @IsString()

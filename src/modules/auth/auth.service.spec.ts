@@ -554,4 +554,117 @@ describe('AuthService', () => {
     }
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
+
+  describe('studentForgotPassword', () => {
+    it('unknown username still returns success and does not throw', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+
+      const result = await service.studentForgotPassword({
+        username: 'ghost_student',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(prisma.authCode.create).not.toHaveBeenCalled();
+      expect(mail.sendOtpCodeToEmail).not.toHaveBeenCalled();
+    });
+
+    it('known student with an email creates one AuthCode', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'student-1',
+        username: 'wingkid',
+        real_name: 'Wing Kid',
+        nickname: 'Wing',
+        role: Role.STUDENT,
+        email: 'wingkid@school.demo',
+      });
+      prisma.authCode.create.mockResolvedValue({ id: 'code-1' });
+
+      const result = await service.studentForgotPassword({
+        username: 'wingkid',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(prisma.authCode.create).toHaveBeenCalledTimes(1);
+      const codeData = prisma.authCode.create.mock.calls[0][0].data;
+      expect(codeData.email).toBe('wingkid@school.demo');
+      expect(codeData.purpose).toBe(AuthCodePurpose.RESET_PASSWORD);
+      expect(codeData.expires_at.getTime()).toBeGreaterThan(
+        Date.now() + 14 * 60 * 1000,
+      );
+      expect(codeData.expires_at.getTime()).toBeLessThan(
+        Date.now() + 16 * 60 * 1000,
+      );
+      expect(mail.sendOtpCodeToEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'wingkid@school.demo',
+        }),
+      );
+    });
+
+    it('known student without an email returns success and creates no code', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'student-2',
+        username: 'noemailkid',
+        real_name: 'No Email Kid',
+        nickname: 'NoEmail',
+        role: Role.STUDENT,
+        email: null,
+      });
+
+      const result = await service.studentForgotPassword({
+        username: 'noemailkid',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(prisma.authCode.create).not.toHaveBeenCalled();
+      expect(mail.sendOtpCodeToEmail).not.toHaveBeenCalled();
+    });
+
+    it('response does not include the code', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'student-1',
+        username: 'wingkid',
+        real_name: 'Wing Kid',
+        nickname: 'Wing',
+        role: Role.STUDENT,
+        email: 'wingkid@school.demo',
+      });
+      prisma.authCode.create.mockResolvedValue({ id: 'code-1' });
+
+      const result = await service.studentForgotPassword({
+        username: 'wingkid',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(result).not.toHaveProperty('code');
+      expect(result).not.toHaveProperty('otp');
+      expect(result).not.toHaveProperty('data');
+    });
+
+    it('missing username still returns success and does not throw', async () => {
+      const result = await service.studentForgotPassword({} as any);
+
+      expect(result).toEqual({ success: true });
+      expect(prisma.user.findFirst).not.toHaveBeenCalled();
+      expect(prisma.authCode.create).not.toHaveBeenCalled();
+    });
+
+    it('does not create code if user is not a student', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'teacher-1',
+        username: 'teach1',
+        real_name: 'Teach',
+        role: Role.TEACHER,
+        email: 'teach@school.demo',
+      });
+
+      const result = await service.studentForgotPassword({
+        username: 'teach1',
+      });
+
+      expect(result).toEqual({ success: true });
+      expect(prisma.authCode.create).not.toHaveBeenCalled();
+      expect(mail.sendOtpCodeToEmail).not.toHaveBeenCalled();
+    });
+  });
 });

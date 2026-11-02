@@ -36,6 +36,7 @@ import {
   JoinCodeDto,
   RegisterStudentDto,
   SelectHeroDto,
+  StudentForgotPasswordDto,
   StudentLoginDto,
 } from './dto/student-auth.dto';
 
@@ -348,6 +349,28 @@ export class AuthService {
         user: toPublicUser(user),
       },
     };
+  }
+
+  async studentForgotPassword(dto?: StudentForgotPasswordDto) {
+    const rawUsername = dto?.username;
+    if (typeof rawUsername !== 'string' || !rawUsername.trim()) {
+      return { success: true };
+    }
+    const username = rawUsername.trim();
+    const user = await this.prisma.user.findFirst({
+      where: { username },
+    });
+    if (user && user.role === Role.STUDENT && user.email && user.email.trim()) {
+      const email = normalizeEmail(user.email);
+      const code = await this.issueCode(email, AuthCodePurpose.RESET_PASSWORD);
+      await this.mailService.sendOtpCodeToEmail({
+        name: user.real_name || user.nickname || 'Student',
+        email,
+        otp: code,
+      });
+    }
+
+    return { success: true };
   }
 
   async selectHero(userId: string, dto: SelectHeroDto) {

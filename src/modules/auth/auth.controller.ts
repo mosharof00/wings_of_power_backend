@@ -15,6 +15,7 @@ import {
   JoinCodeDto,
   RegisterStudentDto,
   SelectHeroDto,
+  StudentForgotPasswordDto,
   StudentLoginDto,
 } from './dto/student-auth.dto';
 import { AuthService } from './auth.service';
@@ -94,6 +95,12 @@ export class AuthController {
   @Post('student/login')
   loginStudent(@Body() dto: StudentLoginDto) {
     return this.authService.loginStudent(dto);
+  }
+
+  @ApiOperation({ summary: 'Request a student password reset' })
+  @Post('student/forgot-password')
+  studentForgotPassword(@Body() dto?: StudentForgotPasswordDto) {
+    return this.authService.studentForgotPassword(dto);
   }
 
   @ApiOperation({ summary: 'Select a starter or unlocked hero' })
