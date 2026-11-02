@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { ValidationPipe, INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
@@ -15,7 +18,52 @@ export interface TestAppContext {
   mailService: TestMailService;
 }
 
+const LOCK_FILE = path.join(os.tmpdir(), 'wings-of-power-e2e.lock');
+
+async function acquireLock(timeoutMs = 60000): Promise<() => void> {
+  const start = Date.now();
+  while (true) {
+    try {
+      const fd = fs.openSync(LOCK_FILE, 'wx');
+      fs.writeSync(fd, `${process.pid}\n${Date.now()}`);
+      fs.closeSync(fd);
+      let released = false;
+      const release = () => {
+        if (!released) {
+          released = true;
+          try {
+            fs.unlinkSync(LOCK_FILE);
+          } catch {
+            // ignore
+          }
+        }
+      };
+      process.on('exit', release);
+      return release;
+    } catch (err: any) {
+      if (err.code === 'EEXIST') {
+        try {
+          const stats = fs.statSync(LOCK_FILE);
+          if (Date.now() - stats.mtimeMs > 60000) {
+            fs.unlinkSync(LOCK_FILE);
+            continue;
+          }
+        } catch {
+          // ignore
+        }
+        if (Date.now() - start > timeoutMs) {
+          throw new Error('Timed out waiting for e2e lock');
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 export async function createTestApp(): Promise<TestAppContext> {
+  const releaseLock = await acquireLock();
   const mailService = new TestMailService();
 
   const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -46,6 +94,15 @@ export async function createTestApp(): Promise<TestAppContext> {
   await app.init();
 
   const prisma = app.get(PrismaService);
+
+  const originalClose = app.close.bind(app);
+  app.close = async () => {
+    try {
+      await originalClose();
+    } finally {
+      releaseLock();
+    }
+  };
 
   return {
     app,
