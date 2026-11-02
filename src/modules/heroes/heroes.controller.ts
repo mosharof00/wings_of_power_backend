@@ -23,10 +23,7 @@ export class HeroesController {
 
   @ApiOperation({ summary: 'Select an unlocked hero' })
   @Post(':id/select')
-  selectHero(
-    @GetUser('userId') userId: string,
-    @Param('id') heroId: string,
-  ) {
+  selectHero(@GetUser('userId') userId: string, @Param('id') heroId: string) {
     return this.heroesService.select(userId, heroId);
   }
 }

@@ -107,8 +107,12 @@ describe('HeroesService', () => {
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(2);
 
-      const starterAt1 = result.data.find((h: any) => h.id === mockStarterHero.id);
-      const twoStoryAt1 = result.data.find((h: any) => h.id === mockTwoStoryHero.id);
+      const starterAt1 = result.data.find(
+        (h: any) => h.id === mockStarterHero.id,
+      );
+      const twoStoryAt1 = result.data.find(
+        (h: any) => h.id === mockTwoStoryHero.id,
+      );
 
       expect(starterAt1.unlocked).toBe(true);
       expect(starterAt1.locked).toBe(false);
@@ -128,7 +132,9 @@ describe('HeroesService', () => {
       prisma.readingProgress.count.mockResolvedValue(2);
 
       result = await service.findAll(mockStudent.id);
-      const twoStoryAt2 = result.data.find((h: any) => h.id === mockTwoStoryHero.id);
+      const twoStoryAt2 = result.data.find(
+        (h: any) => h.id === mockTwoStoryHero.id,
+      );
 
       expect(twoStoryAt2.unlocked).toBe(true);
       expect(twoStoryAt2.locked).toBe(false);
@@ -199,7 +205,10 @@ describe('HeroesService', () => {
         selected_hero_id: mockTwoStoryHero.id,
       });
 
-      const firstResult = await service.select(mockStudent.id, mockTwoStoryHero.id);
+      const firstResult = await service.select(
+        mockStudent.id,
+        mockTwoStoryHero.id,
+      );
 
       expect(firstResult.success).toBe(true);
       expect(firstResult.data.selected_hero_id).toBe(mockTwoStoryHero.id);
@@ -233,7 +242,10 @@ describe('HeroesService', () => {
       });
       prisma.readingProgress.count.mockResolvedValue(2);
 
-      const secondResult = await service.select(mockStudent.id, mockTwoStoryHero.id);
+      const secondResult = await service.select(
+        mockStudent.id,
+        mockTwoStoryHero.id,
+      );
 
       expect(secondResult.success).toBe(true);
       expect(secondResult.data.selected_hero_id).toBe(mockTwoStoryHero.id);
@@ -329,7 +341,10 @@ describe('HeroesService', () => {
       prisma.studentHeroUnlock.create.mockResolvedValue({});
       prisma.user.update.mockResolvedValue({});
 
-      const selectResult = await service.select(mockStudent.id, mockStarterHero.id);
+      const selectResult = await service.select(
+        mockStudent.id,
+        mockStarterHero.id,
+      );
       expect(selectResult.success).toBe(true);
       expect(selectResult.data.hero.power_code).toBe(PowerCode.MELODY);
       expect(selectResult.data.hero.power_label).toBe('Melody Shot');
