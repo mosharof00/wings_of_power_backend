@@ -1,7 +1,13 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { JoinRequestStatus, PointsSource, Role } from 'prisma/generated/client';
+import {
+  JoinRequestStatus,
+  PointsSource,
+  Role,
+  UserStatus,
+} from 'prisma/generated/client';
 import { paginateResponse } from '../../common/pagination/pagination.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { LeaderboardQueryDto, LeaderboardScope } from './dto/leaderboard.dto';
 import {
   AwardPointsDto,
   PatchPointRulesDto,
@@ -320,6 +326,263 @@ export class PointsService {
     }
 
     return this.getPointRules(adminId);
+  }
+
+  async getLeaderboard(
+    studentId: string,
+    query?: Partial<LeaderboardQueryDto>,
+  ) {
+    const scope = query?.scope ?? LeaderboardScope.CLASS;
+    if (scope !== LeaderboardScope.CLASS && scope !== LeaderboardScope.SCHOOL) {
+      throw new HttpException(
+        'Invalid scope: must be class or school',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const caller = await this.prisma.user.findFirst({
+      where: {
+        id: studentId,
+        deleted_at: null,
+      },
+    });
+
+    if (
+      !caller ||
+      caller.role !== Role.STUDENT ||
+      caller.status === UserStatus.INACTIVE
+    ) {
+      throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+    }
+
+    let candidateUsers: Array<{
+      id: string;
+      nickname: string | null;
+      username: string | null;
+      avatar_url: string | null;
+    }> = [];
+
+    if (scope === LeaderboardScope.CLASS) {
+      const membership = await this.prisma.classMembership.findFirst({
+        where: {
+          user_id: caller.id,
+          status: JoinRequestStatus.APPROVED,
+          class: {
+            deleted_at: null,
+          },
+        },
+        include: {
+          class: true,
+        },
+        orderBy: { updated_at: 'desc' },
+      });
+
+      if (!membership || !membership.class_id) {
+        candidateUsers = [
+          {
+            id: caller.id,
+            nickname: caller.nickname,
+            username: caller.username,
+            avatar_url: caller.avatar_url,
+          },
+        ];
+      } else {
+        const memberships = await this.prisma.classMembership.findMany({
+          where: {
+            class_id: membership.class_id,
+            status: JoinRequestStatus.APPROVED,
+            user: {
+              role: Role.STUDENT,
+              status: { not: UserStatus.INACTIVE },
+              deleted_at: null,
+            },
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                nickname: true,
+                username: true,
+                avatar_url: true,
+                status: true,
+                deleted_at: true,
+                role: true,
+              },
+            },
+          },
+        });
+
+        const candidatesMap = new Map<
+          string,
+          {
+            id: string;
+            nickname: string | null;
+            username: string | null;
+            avatar_url: string | null;
+          }
+        >();
+
+        for (const m of memberships) {
+          if (
+            m.user &&
+            m.user.status !== UserStatus.INACTIVE &&
+            !m.user.deleted_at
+          ) {
+            candidatesMap.set(m.user.id, {
+              id: m.user.id,
+              nickname: m.user.nickname,
+              username: m.user.username,
+              avatar_url: m.user.avatar_url,
+            });
+          }
+        }
+
+        if (!candidatesMap.has(caller.id)) {
+          candidatesMap.set(caller.id, {
+            id: caller.id,
+            nickname: caller.nickname,
+            username: caller.username,
+            avatar_url: caller.avatar_url,
+          });
+        }
+
+        candidateUsers = Array.from(candidatesMap.values());
+      }
+    } else {
+      const schoolId = caller.school_id;
+      if (!schoolId) {
+        candidateUsers = [
+          {
+            id: caller.id,
+            nickname: caller.nickname,
+            username: caller.username,
+            avatar_url: caller.avatar_url,
+          },
+        ];
+      } else {
+        const schoolStudents = await this.prisma.user.findMany({
+          where: {
+            school_id: schoolId,
+            role: Role.STUDENT,
+            status: { not: UserStatus.INACTIVE },
+            deleted_at: null,
+          },
+          select: {
+            id: true,
+            nickname: true,
+            username: true,
+            avatar_url: true,
+            status: true,
+            deleted_at: true,
+            role: true,
+          },
+        });
+
+        const candidatesMap = new Map<
+          string,
+          {
+            id: string;
+            nickname: string | null;
+            username: string | null;
+            avatar_url: string | null;
+          }
+        >();
+
+        for (const s of schoolStudents) {
+          if (s.status !== UserStatus.INACTIVE && !s.deleted_at) {
+            candidatesMap.set(s.id, {
+              id: s.id,
+              nickname: s.nickname,
+              username: s.username,
+              avatar_url: s.avatar_url,
+            });
+          }
+        }
+
+        if (!candidatesMap.has(caller.id)) {
+          candidatesMap.set(caller.id, {
+            id: caller.id,
+            nickname: caller.nickname,
+            username: caller.username,
+            avatar_url: caller.avatar_url,
+          });
+        }
+
+        candidateUsers = Array.from(candidatesMap.values());
+      }
+    }
+
+    const userIds = candidateUsers.map((u) => u.id);
+    const pointsMap = new Map<string, number>();
+
+    if (userIds.length > 0) {
+      const sums = await this.prisma.pointsLedger.groupBy({
+        by: ['user_id'],
+        where: {
+          user_id: { in: userIds },
+        },
+        _sum: {
+          kindness_amount: true,
+        },
+      });
+
+      for (const s of sums) {
+        pointsMap.set(s.user_id, s._sum?.kindness_amount ?? 0);
+      }
+    }
+
+    const itemsWithScores = candidateUsers.map((u) => ({
+      userId: u.id,
+      nickname: u.nickname || u.username || '',
+      avatarUrl: u.avatar_url ?? null,
+      kindnessPoints: pointsMap.get(u.id) ?? 0,
+    }));
+
+    itemsWithScores.sort((a, b) => {
+      if (b.kindnessPoints !== a.kindnessPoints) {
+        return b.kindnessPoints - a.kindnessPoints;
+      }
+      const nameCompare = a.nickname.localeCompare(b.nickname);
+      if (nameCompare !== 0) return nameCompare;
+      return a.userId.localeCompare(b.userId);
+    });
+
+    const ranked: Array<{
+      userId: string;
+      nickname: string;
+      avatarUrl: string | null;
+      kindnessPoints: number;
+      rank: number;
+    }> = [];
+
+    for (let i = 0; i < itemsWithScores.length; i++) {
+      const current = itemsWithScores[i];
+      if (
+        i > 0 &&
+        current.kindnessPoints === itemsWithScores[i - 1].kindnessPoints
+      ) {
+        ranked.push({
+          ...current,
+          rank: ranked[i - 1].rank,
+        });
+      } else {
+        ranked.push({
+          ...current,
+          rank: i + 1,
+        });
+      }
+    }
+
+    const page = Math.max(1, query?.page ?? 1);
+    const perPage = Math.max(1, query?.perPage ?? 10);
+    const skip = (page - 1) * perPage;
+    const total = ranked.length;
+    const pagedItems = ranked.slice(skip, skip + perPage);
+
+    return {
+      success: true,
+      data: paginateResponse(pagedItems, total, page, perPage),
+    };
   }
 
   private async adminSchool(adminId: string): Promise<string> {

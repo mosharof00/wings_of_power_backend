@@ -1,6 +1,12 @@
 import { HttpException } from '@nestjs/common';
-import { JoinRequestStatus, PointsSource, Role } from 'prisma/generated/client';
+import {
+  JoinRequestStatus,
+  PointsSource,
+  Role,
+  UserStatus,
+} from 'prisma/generated/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { LeaderboardScope } from './dto/leaderboard.dto';
 import { PointsService } from './points.service';
 
 describe('PointsService', () => {
@@ -8,9 +14,11 @@ describe('PointsService', () => {
     user: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
     classMembership: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
     },
     pointRule: {
       findFirst: jest.fn(),
@@ -23,6 +31,7 @@ describe('PointsService', () => {
       count: jest.fn(),
       create: jest.fn(),
       aggregate: jest.fn(),
+      groupBy: jest.fn(),
     },
     badge: {
       count: jest.fn(),
@@ -389,6 +398,404 @@ describe('PointsService', () => {
       expect(result.data.rules.storyPoints).toBe(1);
       expect(result.data.rules.kindnessPoints).toBe(50);
       expect(result.data.rules.teacherAward).toBe(5);
+    });
+  });
+
+  describe('getLeaderboard', () => {
+    const student1 = {
+      id: 'student-1',
+      role: Role.STUDENT,
+      status: UserStatus.ACTIVE,
+      nickname: 'HeroKid',
+      username: 'student1',
+      avatar_url: 'https://cdn.example.com/a1.png',
+      real_name: 'John Doe',
+      selected_hero_id: 'hero-1',
+      school_id: 'school-1',
+      deleted_at: null,
+    };
+
+    const student2 = {
+      id: 'student-2',
+      role: Role.STUDENT,
+      status: UserStatus.ACTIVE,
+      nickname: 'KindGirl',
+      username: 'student2',
+      avatar_url: 'https://cdn.example.com/a2.png',
+      real_name: 'Jane Smith',
+      selected_hero_id: 'hero-2',
+      school_id: 'school-1',
+      deleted_at: null,
+    };
+
+    const student3 = {
+      id: 'student-3',
+      role: Role.STUDENT,
+      status: UserStatus.ACTIVE,
+      nickname: null,
+      username: 'student3',
+      avatar_url: null,
+      real_name: 'Bob Brown',
+      selected_hero_id: 'hero-3',
+      school_id: 'school-1',
+      deleted_at: null,
+    };
+
+    const student4 = {
+      id: 'student-4',
+      role: Role.STUDENT,
+      status: UserStatus.ACTIVE,
+      nickname: 'CoolCat',
+      username: 'student4',
+      avatar_url: 'https://cdn.example.com/a4.png',
+      real_name: 'Charlie White',
+      selected_hero_id: 'hero-4',
+      school_id: 'school-1',
+      deleted_at: null,
+    };
+
+    it('invalid scope → 400', async () => {
+      await expect(
+        service.getLeaderboard('student-1', { scope: 'district' as any }),
+      ).rejects.toMatchObject({
+        status: 400,
+      });
+    });
+
+    it('forbidden if caller is inactive or not student', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        ...student1,
+        status: UserStatus.INACTIVE,
+      });
+      await expect(
+        service.getLeaderboard('student-1', { scope: LeaderboardScope.CLASS }),
+      ).rejects.toMatchObject({
+        status: 403,
+      });
+
+      prisma.user.findFirst.mockResolvedValue({
+        ...student1,
+        role: Role.TEACHER,
+      });
+      await expect(
+        service.getLeaderboard('student-1', { scope: LeaderboardScope.CLASS }),
+      ).rejects.toMatchObject({
+        status: 403,
+      });
+    });
+
+    it('if student has no approved class, scope=class returns a one-row board of themselves without 404', async () => {
+      prisma.user.findFirst.mockResolvedValue(student1);
+      prisma.classMembership.findFirst.mockResolvedValue(null);
+      prisma.pointsLedger.groupBy.mockResolvedValue([]);
+
+      const result = await service.getLeaderboard('student-1', {
+        scope: LeaderboardScope.CLASS,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data.items).toHaveLength(1);
+      expect(result.data.items[0]).toEqual({
+        userId: 'student-1',
+        nickname: 'HeroKid',
+        avatarUrl: 'https://cdn.example.com/a1.png',
+        kindnessPoints: 0,
+        rank: 1,
+      });
+      expect(result.data.total).toBe(1);
+    });
+
+    it('scope=class excludes a student in another class', async () => {
+      prisma.user.findFirst.mockResolvedValue(student1);
+      prisma.classMembership.findFirst.mockResolvedValue({
+        id: 'mem-1',
+        user_id: 'student-1',
+        class_id: 'class-1',
+        status: JoinRequestStatus.APPROVED,
+        class: { id: 'class-1', deleted_at: null },
+      });
+
+      prisma.classMembership.findMany.mockResolvedValue([
+        {
+          id: 'mem-1',
+          class_id: 'class-1',
+          user_id: 'student-1',
+          user: student1,
+        },
+        {
+          id: 'mem-2',
+          class_id: 'class-1',
+          user_id: 'student-2',
+          user: student2,
+        },
+      ]);
+
+      prisma.pointsLedger.groupBy.mockResolvedValue([
+        { user_id: 'student-1', _sum: { kindness_amount: 50 } },
+        { user_id: 'student-2', _sum: { kindness_amount: 100 } },
+      ]);
+
+      const result = await service.getLeaderboard('student-1', {
+        scope: LeaderboardScope.CLASS,
+      });
+
+      expect(prisma.classMembership.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            class_id: 'class-1',
+          }),
+        }),
+      );
+      expect(result.data.items.map((i: any) => i.userId)).toEqual([
+        'student-2',
+        'student-1',
+      ]);
+      expect(result.data.items.some((i: any) => i.userId === 'student-3')).toBe(
+        false,
+      );
+    });
+
+    it('a TEACHER_AWARD row with kindness_amount 0 does not change rank, a GAME_KINDNESS row does', async () => {
+      prisma.user.findFirst.mockResolvedValue(student1);
+      prisma.classMembership.findFirst.mockResolvedValue({
+        id: 'mem-1',
+        user_id: 'student-1',
+        class_id: 'class-1',
+        status: JoinRequestStatus.APPROVED,
+        class: { id: 'class-1', deleted_at: null },
+      });
+
+      prisma.classMembership.findMany.mockResolvedValue([
+        {
+          id: 'mem-1',
+          class_id: 'class-1',
+          user_id: 'student-1',
+          user: student1,
+        },
+        {
+          id: 'mem-2',
+          class_id: 'class-1',
+          user_id: 'student-2',
+          user: student2,
+        },
+      ]);
+
+      prisma.pointsLedger.groupBy.mockResolvedValue([
+        { user_id: 'student-1', _sum: { kindness_amount: 50 } },
+        { user_id: 'student-2', _sum: { kindness_amount: 0 } },
+      ]);
+
+      const res1 = await service.getLeaderboard('student-1', {
+        scope: LeaderboardScope.CLASS,
+      });
+
+      expect(res1.data.items[0].userId).toBe('student-1');
+      expect(res1.data.items[0].rank).toBe(1);
+      expect(res1.data.items[1].userId).toBe('student-2');
+      expect(res1.data.items[1].rank).toBe(2);
+
+      prisma.pointsLedger.groupBy.mockResolvedValue([
+        { user_id: 'student-1', _sum: { kindness_amount: 50 } },
+        { user_id: 'student-2', _sum: { kindness_amount: 0 } },
+      ]);
+
+      const res2 = await service.getLeaderboard('student-1', {
+        scope: LeaderboardScope.CLASS,
+      });
+
+      expect(res2.data.items[0].userId).toBe('student-1');
+      expect(res2.data.items[0].rank).toBe(1);
+      expect(res2.data.items[1].userId).toBe('student-2');
+      expect(res2.data.items[1].rank).toBe(2);
+
+      prisma.pointsLedger.groupBy.mockResolvedValue([
+        { user_id: 'student-1', _sum: { kindness_amount: 50 } },
+        { user_id: 'student-2', _sum: { kindness_amount: 100 } },
+      ]);
+
+      const res3 = await service.getLeaderboard('student-1', {
+        scope: LeaderboardScope.CLASS,
+      });
+
+      expect(res3.data.items[0].userId).toBe('student-2');
+      expect(res3.data.items[0].rank).toBe(1);
+      expect(res3.data.items[1].userId).toBe('student-1');
+      expect(res3.data.items[1].rank).toBe(2);
+    });
+
+    it('payload has no real_name and no hero fields', async () => {
+      prisma.user.findFirst.mockResolvedValue(student1);
+      prisma.classMembership.findFirst.mockResolvedValue(null);
+      prisma.pointsLedger.groupBy.mockResolvedValue([]);
+
+      const result = await service.getLeaderboard('student-1', {
+        scope: LeaderboardScope.CLASS,
+      });
+
+      const item = result.data.items[0];
+      expect(item).not.toHaveProperty('real_name');
+      expect(item).not.toHaveProperty('realName');
+      expect(item).not.toHaveProperty('hero');
+      expect(item).not.toHaveProperty('heroId');
+      expect(item).not.toHaveProperty('hero_id');
+      expect(item).not.toHaveProperty('heroArt');
+      expect(item).not.toHaveProperty('hero_art');
+      expect(item).not.toHaveProperty('selected_hero_id');
+      expect(item).not.toHaveProperty('selectedHeroId');
+      expect(Object.keys(item).sort()).toEqual(
+        ['userId', 'nickname', 'avatarUrl', 'kindnessPoints', 'rank'].sort(),
+      );
+    });
+
+    it('competition ranking for ties (1, 2, 2, 4) and pagination', async () => {
+      prisma.user.findFirst.mockResolvedValue(student1);
+      prisma.classMembership.findFirst.mockResolvedValue({
+        id: 'mem-1',
+        user_id: 'student-1',
+        class_id: 'class-1',
+        status: JoinRequestStatus.APPROVED,
+        class: { id: 'class-1', deleted_at: null },
+      });
+
+      prisma.classMembership.findMany.mockResolvedValue([
+        { id: 'm1', user_id: 'student-1', user: student1 },
+        { id: 'm2', user_id: 'student-2', user: student2 },
+        { id: 'm3', user_id: 'student-3', user: student3 },
+        { id: 'm4', user_id: 'student-4', user: student4 },
+      ]);
+
+      prisma.pointsLedger.groupBy.mockResolvedValue([
+        { user_id: 'student-2', _sum: { kindness_amount: 100 } },
+        { user_id: 'student-1', _sum: { kindness_amount: 50 } },
+        { user_id: 'student-4', _sum: { kindness_amount: 50 } },
+        { user_id: 'student-3', _sum: { kindness_amount: 10 } },
+      ]);
+
+      const page1 = await service.getLeaderboard('student-1', {
+        scope: LeaderboardScope.CLASS,
+        page: 1,
+        perPage: 2,
+      });
+
+      expect(page1.data.items).toHaveLength(2);
+      expect(page1.data.items[0].rank).toBe(1);
+      expect(page1.data.items[0].kindnessPoints).toBe(100);
+      expect(page1.data.items[1].rank).toBe(2);
+      expect(page1.data.items[1].kindnessPoints).toBe(50);
+
+      const page2 = await service.getLeaderboard('student-1', {
+        scope: LeaderboardScope.CLASS,
+        page: 2,
+        perPage: 2,
+      });
+
+      expect(page2.data.items).toHaveLength(2);
+      expect(page2.data.items[0].rank).toBe(2);
+      expect(page2.data.items[0].kindnessPoints).toBe(50);
+      expect(page2.data.items[1].rank).toBe(4);
+      expect(page2.data.items[1].kindnessPoints).toBe(10);
+    });
+
+    it('caller is included even at 0 kindness points', async () => {
+      prisma.user.findFirst.mockResolvedValue(student1);
+      prisma.classMembership.findFirst.mockResolvedValue({
+        id: 'mem-1',
+        user_id: 'student-1',
+        class_id: 'class-1',
+        status: JoinRequestStatus.APPROVED,
+        class: { id: 'class-1', deleted_at: null },
+      });
+
+      prisma.classMembership.findMany.mockResolvedValue([
+        { id: 'm1', user_id: 'student-1', user: student1 },
+        { id: 'm2', user_id: 'student-2', user: student2 },
+      ]);
+
+      prisma.pointsLedger.groupBy.mockResolvedValue([
+        { user_id: 'student-2', _sum: { kindness_amount: 100 } },
+      ]);
+
+      const result = await service.getLeaderboard('student-1', {
+        scope: LeaderboardScope.CLASS,
+      });
+
+      const callerItem = result.data.items.find(
+        (i: any) => i.userId === 'student-1',
+      );
+      expect(callerItem).toBeDefined();
+      expect(callerItem.kindnessPoints).toBe(0);
+      expect(callerItem.rank).toBe(2);
+    });
+
+    it('hides INACTIVE and soft-deleted students', async () => {
+      prisma.user.findFirst.mockResolvedValue(student1);
+      prisma.classMembership.findFirst.mockResolvedValue({
+        id: 'mem-1',
+        user_id: 'student-1',
+        class_id: 'class-1',
+        status: JoinRequestStatus.APPROVED,
+        class: { id: 'class-1', deleted_at: null },
+      });
+
+      prisma.classMembership.findMany.mockResolvedValue([
+        { id: 'm1', user_id: 'student-1', user: student1 },
+        {
+          id: 'm-inactive',
+          user_id: 'student-inactive',
+          user: {
+            ...student2,
+            id: 'student-inactive',
+            status: UserStatus.INACTIVE,
+          },
+        },
+        {
+          id: 'm-deleted',
+          user_id: 'student-deleted',
+          user: {
+            ...student3,
+            id: 'student-deleted',
+            deleted_at: new Date(),
+          },
+        },
+      ]);
+
+      prisma.pointsLedger.groupBy.mockResolvedValue([]);
+
+      const result = await service.getLeaderboard('student-1', {
+        scope: LeaderboardScope.CLASS,
+      });
+
+      const ids = result.data.items.map((i: any) => i.userId);
+      expect(ids).toContain('student-1');
+      expect(ids).not.toContain('student-inactive');
+      expect(ids).not.toContain('student-deleted');
+    });
+
+    it('scope=school returns school students ranked', async () => {
+      prisma.user.findFirst.mockResolvedValue(student1);
+      prisma.user.findMany.mockResolvedValue([student1, student2]);
+      prisma.pointsLedger.groupBy.mockResolvedValue([
+        { user_id: 'student-1', _sum: { kindness_amount: 30 } },
+        { user_id: 'student-2', _sum: { kindness_amount: 80 } },
+      ]);
+
+      const result = await service.getLeaderboard('student-1', {
+        scope: LeaderboardScope.SCHOOL,
+      });
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            school_id: 'school-1',
+            role: Role.STUDENT,
+          }),
+        }),
+      );
+
+      expect(result.data.items[0].userId).toBe('student-2');
+      expect(result.data.items[0].rank).toBe(1);
+      expect(result.data.items[1].userId).toBe('student-1');
+      expect(result.data.items[1].rank).toBe(2);
     });
   });
 });
