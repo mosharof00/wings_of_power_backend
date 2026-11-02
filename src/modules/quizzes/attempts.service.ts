@@ -1,4 +1,9 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Optional,
+} from '@nestjs/common';
 import {
   PointsSource,
   QuestionType,
@@ -7,6 +12,7 @@ import {
   Role,
 } from 'prisma/generated/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BadgesService } from '../badges/badges.service';
 import { SubmitAnswerDto } from './dto/attempt.dto';
 
 type StoredOption = {
@@ -33,7 +39,10 @@ type StoredQuiz = {
 
 @Injectable()
 export class AttemptsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly badgesService?: BadgesService,
+  ) {}
 
   async getChapterQuiz(studentId: string, chapterId: string) {
     await this.chapterInSchool(studentId, chapterId);
@@ -400,6 +409,10 @@ export class AttemptsService {
         quiz_best_percent: quizBestPercent,
       },
     });
+
+    if (this.badgesService) {
+      await this.badgesService.evaluate(studentId);
+    }
 
     return {
       success: true,
