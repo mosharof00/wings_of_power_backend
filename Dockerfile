@@ -1,32 +1,59 @@
-# Base image
-FROM node:20
+# ----------------------------------------------------------------------
+# Stage 1: Build application
+# ----------------------------------------------------------------------
+FROM node:20-alpine AS builder
 
-# Create app directory
 WORKDIR /usr/src/app
 
-# A wildcard is used to ensure both package.json AND package-lock.json are copied
-COPY package*.json ./
-COPY yarn.lock ./
+# Install native compilation dependencies for bcrypt / node-gyp and OpenSSL for Prisma
+RUN apk add --no-cache libc6-compat openssl python3 make g++
 
-# Install app dependencies
-RUN yarn install
+# Copy package manifests
+COPY package.json yarn.lock ./
 
-# Bundle app source
-COPY . .
+# Install all dependencies (including devDependencies required for build)
+RUN yarn install --frozen-lockfile
 
-# Copy the .env and .env.development files
-COPY .env ./
+# Copy Prisma schema
+COPY prisma ./prisma/
 
-# prisma generate
+# Generate Prisma Client (builds engine for Linux Alpine)
 RUN npx prisma generate
 
-# Creates a "dist" folder with the production build
-# RUN yarn build
+# Copy project configuration and application source
+COPY tsconfig*.json nest-cli.json prisma.config.ts ./
+COPY src ./src/
 
-# Expose the port on which the app will run
+# Compile TypeScript
+RUN yarn build
+
+# Ensure query engine binary is available in dist/prisma/generated
+RUN cp -f prisma/generated/libquery_engine* dist/prisma/generated/ 2>/dev/null || true
+
+# Prune devDependencies for clean production runtime
+RUN rm -rf node_modules && yarn install --production --frozen-lockfile && yarn cache clean
+
+# ----------------------------------------------------------------------
+# Stage 2: Production runtime
+# ----------------------------------------------------------------------
+FROM node:20-alpine AS runner
+
+WORKDIR /usr/src/app
+
+# Runtime libraries required by Prisma query engine
+RUN apk add --no-cache libc6-compat openssl
+
+ENV NODE_ENV=production
+ENV PORT=4000
+
+# Copy package manifests and production dependencies
+COPY package.json yarn.lock ./
+COPY --chown=node:node --from=builder /usr/src/app/node_modules ./node_modules
+COPY --chown=node:node --from=builder /usr/src/app/prisma ./prisma
+COPY --chown=node:node --from=builder /usr/src/app/dist ./dist
+
+USER node
+
 EXPOSE 4000
 
-# Start the server using the production build
-# CMD ["yarn", "start:prod"]
-# Start the server in dev mode
-CMD ["yarn", "start:dev-swc"]
+CMD ["node", "dist/src/main"]
