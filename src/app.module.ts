@@ -29,6 +29,7 @@ import { HeroesModule } from './modules/heroes/heroes.module';
 import { SafeSpaceModule } from './modules/safe-space/safe-space.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { GameModule } from './modules/game/game.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -92,6 +93,7 @@ import { GameModule } from './modules/game/game.module';
     SafeSpaceModule,
     DashboardsModule,
     GameModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [
