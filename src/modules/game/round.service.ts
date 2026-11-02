@@ -204,14 +204,27 @@ export class RoundService {
         }
       }
 
-      const pack = await this.prisma.gameQuestionPack.findFirst({
-        where: {
-          school_id: match.school_id,
-          status: PublishStatus.PUBLISHED,
-          ...(ageGroup ? { age_group: ageGroup } : {}),
-        },
-        orderBy: { created_at: 'desc' },
-      });
+      let pack = null;
+      if (ageGroup) {
+        pack = await this.prisma.gameQuestionPack.findFirst({
+          where: {
+            school_id: match.school_id,
+            status: PublishStatus.PUBLISHED,
+            age_group: ageGroup,
+          },
+          orderBy: { created_at: 'desc' },
+        });
+      }
+
+      if (!pack) {
+        pack = await this.prisma.gameQuestionPack.findFirst({
+          where: {
+            school_id: match.school_id,
+            status: PublishStatus.PUBLISHED,
+          },
+          orderBy: { created_at: 'desc' },
+        });
+      }
 
       if (pack) {
         packId = pack.id;
