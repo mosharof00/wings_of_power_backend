@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { ValidationPipe, INestApplication } from '@nestjs/common';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { CustomExceptionFilter } from '../../src/common/exception/custom-exception.filter';
@@ -16,6 +17,12 @@ export interface TestAppContext {
   moduleFixture: TestingModule;
   prisma: PrismaService;
   mailService: TestMailService;
+  serverUrl?: string;
+  port?: number;
+}
+
+export interface CreateTestAppOptions {
+  listen?: boolean;
 }
 
 const LOCK_FILE = path.join(os.tmpdir(), 'wings-of-power-e2e.lock');
@@ -62,7 +69,9 @@ async function acquireLock(timeoutMs = 60000): Promise<() => void> {
   }
 }
 
-export async function createTestApp(): Promise<TestAppContext> {
+export async function createTestApp(
+  options?: CreateTestAppOptions,
+): Promise<TestAppContext> {
   const releaseLock = await acquireLock();
   const mailService = new TestMailService();
 
@@ -75,6 +84,7 @@ export async function createTestApp(): Promise<TestAppContext> {
 
   const app = moduleFixture.createNestApplication();
 
+  app.useWebSocketAdapter(new IoAdapter(app));
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
     new ValidationPipe({
@@ -91,7 +101,17 @@ export async function createTestApp(): Promise<TestAppContext> {
     new PrismaExceptionFilter(),
   );
 
-  await app.init();
+  let serverUrl: string | undefined;
+  let port: number | undefined;
+
+  if (options?.listen) {
+    await app.listen(0);
+    const address = app.getHttpServer().address();
+    port = typeof address === 'object' && address ? address.port : 0;
+    serverUrl = `http://localhost:${port}`;
+  } else {
+    await app.init();
+  }
 
   const prisma = app.get(PrismaService);
 
@@ -109,7 +129,18 @@ export async function createTestApp(): Promise<TestAppContext> {
     moduleFixture,
     prisma,
     mailService,
+    serverUrl,
+    port,
   };
+}
+
+export async function startAppServer(
+  app: INestApplication,
+): Promise<{ port: number; serverUrl: string }> {
+  await app.listen(0);
+  const address = app.getHttpServer().address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  return { port, serverUrl: `http://localhost:${port}` };
 }
 
 export async function cleanDb(prisma: PrismaService): Promise<void> {
