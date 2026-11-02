@@ -27,6 +27,7 @@ import { PointsModule } from './modules/points/points.module';
 import { BadgesModule } from './modules/badges/badges.module';
 import { HeroesModule } from './modules/heroes/heroes.module';
 import { SafeSpaceModule } from './modules/safe-space/safe-space.module';
+import { DashboardsModule } from './modules/dashboards/dashboards.module';
 
 @Module({
   imports: [
@@ -88,6 +89,7 @@ import { SafeSpaceModule } from './modules/safe-space/safe-space.module';
     BadgesModule,
     HeroesModule,
     SafeSpaceModule,
+    DashboardsModule,
   ],
   controllers: [AppController],
   providers: [
