@@ -1,5 +1,12 @@
 import { createHash, randomInt, timingSafeEqual } from 'crypto';
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import {
+  forwardRef,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Optional,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import {
@@ -14,6 +21,7 @@ import {
 import appConfig from '../../config/app.config';
 import { MailService } from '../../mail/mail.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { HeroesService } from '../heroes/heroes.service';
 import {
   ChangePasswordDto,
   ForgotPasswordDto,
@@ -39,7 +47,14 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
-  ) {}
+    @Optional()
+    @Inject(forwardRef(() => HeroesService))
+    private heroesService?: HeroesService,
+  ) {
+    if (!this.heroesService) {
+      this.heroesService = new HeroesService(this.prisma);
+    }
+  }
 
   async registerAdmin(dto: RegisterAdminDto) {
     this.assertPasswordsMatch(dto.password, dto.confirmPassword);
@@ -336,36 +351,7 @@ export class AuthService {
   }
 
   async selectHero(userId: string, dto: SelectHeroDto) {
-    const user = await this.prisma.user.findFirst({ where: { id: userId } });
-    if (!user) {
-      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-    }
-    if (user.role !== Role.STUDENT) {
-      throw new HttpException('Student only', HttpStatus.FORBIDDEN);
-    }
-
-    const hero = await this.prisma.hero.findFirst({
-      where: { id: dto.heroId },
-    });
-    if (!hero) {
-      throw new HttpException('Hero not found', HttpStatus.NOT_FOUND);
-    }
-    const unlock = await this.prisma.studentHeroUnlock.findFirst({
-      where: { user_id: user.id, hero_id: hero.id },
-    });
-    if (hero.unlock_stories_required !== 0 && !unlock) {
-      throw new HttpException('Hero is locked', HttpStatus.FORBIDDEN);
-    }
-    if (!unlock) {
-      await this.prisma.studentHeroUnlock.create({
-        data: { user_id: user.id, hero_id: hero.id },
-      });
-    }
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { selected_hero_id: hero.id },
-    });
-    return this.me(user.id);
+    return this.heroesService.select(userId, dto.heroId);
   }
 
   async me(userId: string) {

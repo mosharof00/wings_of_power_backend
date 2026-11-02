@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthService } from './auth.service';
@@ -10,6 +10,7 @@ import { AuthController } from './auth.controller';
 import appConfig from '../../config/app.config';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { MailModule } from '../../mail/mail.module';
+import { HeroesModule } from '../heroes/heroes.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { MailModule } from '../../mail/mail.module';
     }),
     PrismaModule,
     MailModule,
+    forwardRef(() => HeroesModule),
   ],
   controllers: [AuthController],
   providers: [

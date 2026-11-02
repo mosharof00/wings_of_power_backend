@@ -25,6 +25,7 @@ import { UsersModule } from './modules/users/users.module';
 import { ProgressModule } from './modules/progress/progress.module';
 import { PointsModule } from './modules/points/points.module';
 import { BadgesModule } from './modules/badges/badges.module';
+import { HeroesModule } from './modules/heroes/heroes.module';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { BadgesModule } from './modules/badges/badges.module';
     ProgressModule,
     PointsModule,
     BadgesModule,
+    HeroesModule,
   ],
   controllers: [AppController],
   providers: [
