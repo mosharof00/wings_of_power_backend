@@ -8,6 +8,7 @@ import { GameGateway } from './game.gateway';
 import { GameService } from './game.service';
 import { MatchmakingService } from './matchmaking.service';
 import { QueueService } from './queue.service';
+import { RoundService } from './round.service';
 import { StudentGameController } from './student-game.controller';
 
 @Module({
@@ -22,7 +23,19 @@ import { StudentGameController } from './student-game.controller';
     }),
   ],
   controllers: [StudentGameController, AdminGameController],
-  providers: [GameService, QueueService, MatchmakingService, GameGateway],
-  exports: [GameService, QueueService, MatchmakingService, GameGateway],
+  providers: [
+    GameService,
+    QueueService,
+    MatchmakingService,
+    RoundService,
+    GameGateway,
+  ],
+  exports: [
+    GameService,
+    QueueService,
+    MatchmakingService,
+    RoundService,
+    GameGateway,
+  ],
 })
 export class GameModule {}
