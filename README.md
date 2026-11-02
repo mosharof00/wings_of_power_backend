@@ -12,6 +12,12 @@ NestJS API for the Wings of Power student app and the teacher/admin dashboard.
 
 Swagger UI: `http://localhost:4000/api/docs`
 
+Export the OpenAPI specification to `docs/openapi.json`:
+
+```bash
+yarn openapi:export
+```
+
 ## Setup
 
 Install [Node.js](https://nodejs.org/) (LTS), [Yarn](https://yarnpkg.com/), and Docker (for Postgres and Redis).

@@ -1,0 +1,4650 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/auth/admin/register": {
+      "post": {
+        "operationId": "AuthController_registerAdmin",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterAdminDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Register an admin and email a verification code",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/admin/verify-email": {
+      "post": {
+        "operationId": "AuthController_verifyEmail",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyEmailDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Verify an admin email with the 6-digit code",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/admin/login": {
+      "post": {
+        "operationId": "AuthController_loginAdmin",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Admin login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/admin/forgot-password": {
+      "post": {
+        "operationId": "AuthController_forgotPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Email a staff password-reset code",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/admin/reset-password": {
+      "post": {
+        "operationId": "AuthController_resetPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Set a new staff password with a reset code",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/school": {
+      "post": {
+        "operationId": "AuthController_createSchool",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SchoolProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create the school profile for this deployment",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/staff/login": {
+      "post": {
+        "operationId": "AuthController_loginStaff",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Teacher or admin login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/teacher/accept-invite": {
+      "post": {
+        "operationId": "AuthController_acceptInvite",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Accept a teacher invite and create the account",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/student/join-code": {
+      "post": {
+        "operationId": "AuthController_joinCode",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinCodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Preview a class from its join code",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/student/register": {
+      "post": {
+        "operationId": "AuthController_registerStudent",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterStudentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Register a student into a pending class",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/student/login": {
+      "post": {
+        "operationId": "AuthController_loginStudent",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudentLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Student login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/student/select-hero": {
+      "post": {
+        "operationId": "AuthController_selectHero",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectHeroDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Select a starter or unlocked hero",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "operationId": "AuthController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Current user",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "AuthController_logout",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Stateless logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/password": {
+      "patch": {
+        "operationId": "AuthController_changePassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change the current password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/heroes": {
+      "get": {
+        "operationId": "HeroesController_getHeroes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List all heroes with unlock status for student",
+        "tags": [
+          "heroes"
+        ]
+      }
+    },
+    "/api/heroes/{id}/select": {
+      "post": {
+        "operationId": "HeroesController_selectHero",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Select an unlocked hero",
+        "tags": [
+          "heroes"
+        ]
+      }
+    },
+    "/api/teacher/classes": {
+      "get": {
+        "operationId": "TeacherClassesController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Classes assigned to the signed-in teacher",
+        "tags": [
+          "teacher-classes"
+        ]
+      }
+    },
+    "/api/teacher/classes/{id}": {
+      "get": {
+        "operationId": "TeacherClassesController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Class overview",
+        "tags": [
+          "teacher-classes"
+        ]
+      }
+    },
+    "/api/teacher/classes/{id}/join-requests": {
+      "get": {
+        "operationId": "TeacherClassesController_joinRequests",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pending join requests for a class",
+        "tags": [
+          "teacher-classes"
+        ]
+      }
+    },
+    "/api/teacher/join-requests/{id}/approve": {
+      "post": {
+        "operationId": "TeacherClassesController_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Approve a pending student",
+        "tags": [
+          "teacher-classes"
+        ]
+      }
+    },
+    "/api/teacher/join-requests/{id}/reject": {
+      "post": {
+        "operationId": "TeacherClassesController_reject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reject a pending student",
+        "tags": [
+          "teacher-classes"
+        ]
+      }
+    },
+    "/api/teacher/classes/requests": {
+      "post": {
+        "operationId": "TeacherClassRequestsController_requestClass",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClassRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ask an admin to create a class",
+        "tags": [
+          "teacher-classes"
+        ]
+      }
+    },
+    "/api/teacher/classes/{id}/code-renewal": {
+      "post": {
+        "operationId": "TeacherClassRequestsController_requestRenewal",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeRenewalDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ask an admin to renew this class code",
+        "tags": [
+          "teacher-classes"
+        ]
+      }
+    },
+    "/api/admin/classes": {
+      "get": {
+        "operationId": "AdminClassesController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Classes in the admin school",
+        "tags": [
+          "admin-classes"
+        ]
+      },
+      "post": {
+        "operationId": "AdminClassesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClassDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a class and its first active code",
+        "tags": [
+          "admin-classes"
+        ]
+      }
+    },
+    "/api/admin/classes/{id}": {
+      "get": {
+        "operationId": "AdminClassesController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Class detail",
+        "tags": [
+          "admin-classes"
+        ]
+      }
+    },
+    "/api/admin/classes/{id}/change-teacher": {
+      "post": {
+        "operationId": "AdminClassesController_changeTeacher",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeTeacherDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Assign a different teacher",
+        "tags": [
+          "admin-classes"
+        ]
+      }
+    },
+    "/api/admin/classes/{id}/codes": {
+      "post": {
+        "operationId": "AdminClassesController_regenerate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revoke the active code and issue a new one",
+        "tags": [
+          "admin-classes"
+        ]
+      }
+    },
+    "/api/admin/class-requests": {
+      "get": {
+        "operationId": "AdminClassesController_requests",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Class creation and code renewal requests",
+        "tags": [
+          "admin-classes"
+        ]
+      }
+    },
+    "/api/admin/class-requests/{id}/approve": {
+      "post": {
+        "operationId": "AdminClassesController_approveCreation",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Approve a class creation request",
+        "tags": [
+          "admin-classes"
+        ]
+      }
+    },
+    "/api/admin/class-requests/{id}/reject": {
+      "post": {
+        "operationId": "AdminClassesController_rejectCreation",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reject a class creation request",
+        "tags": [
+          "admin-classes"
+        ]
+      }
+    },
+    "/api/admin/code-renewals/{id}/approve": {
+      "post": {
+        "operationId": "AdminClassesController_approveRenewal",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Approve a code renewal and issue a new code",
+        "tags": [
+          "admin-classes"
+        ]
+      }
+    },
+    "/api/admin/stories": {
+      "get": {
+        "operationId": "AdminStoriesController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DRAFT",
+                "PUBLISHED"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Stories in the admin school",
+        "tags": [
+          "admin-stories"
+        ]
+      },
+      "post": {
+        "operationId": "AdminStoriesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateStoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a draft story",
+        "tags": [
+          "admin-stories"
+        ]
+      }
+    },
+    "/api/admin/stories/{id}": {
+      "get": {
+        "operationId": "AdminStoriesController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Story with chapters, pages, and audio",
+        "tags": [
+          "admin-stories"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminStoriesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update story metadata or publish it",
+        "tags": [
+          "admin-stories"
+        ]
+      }
+    },
+    "/api/admin/stories/{id}/chapters": {
+      "post": {
+        "operationId": "AdminStoriesController_addChapter",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateChapterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add a chapter",
+        "tags": [
+          "admin-stories"
+        ]
+      }
+    },
+    "/api/admin/chapters/{id}/pages": {
+      "put": {
+        "operationId": "AdminStoriesController_replacePages",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutPagesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Replace the pages of a chapter",
+        "tags": [
+          "admin-stories"
+        ]
+      }
+    },
+    "/api/admin/chapters/{id}/audio": {
+      "put": {
+        "operationId": "AdminStoriesController_putAudio",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutAudioDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create or replace the chapter audio file",
+        "tags": [
+          "admin-stories"
+        ]
+      }
+    },
+    "/api/stories": {
+      "get": {
+        "operationId": "StudentStoriesController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          },
+          {
+            "name": "category",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "KINDNESS",
+                "COURAGE",
+                "CYBERBULLYING",
+                "FRIENDSHIP",
+                "OTHER"
+              ]
+            }
+          },
+          {
+            "name": "ageGroup",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "AGE_6_9",
+                "AGE_10_13",
+                "ADULTS"
+              ]
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Case-insensitive title contains",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Published stories in the student school",
+        "tags": [
+          "student-stories"
+        ]
+      }
+    },
+    "/api/stories/{id}": {
+      "get": {
+        "operationId": "StudentStoriesController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Published story and chapter list",
+        "tags": [
+          "student-stories"
+        ]
+      }
+    },
+    "/api/stories/{id}/chapters/{chapterId}": {
+      "get": {
+        "operationId": "StudentStoriesController_chapter",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "chapterId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Chapter pages and audio",
+        "tags": [
+          "student-stories"
+        ]
+      }
+    },
+    "/api/teacher/chapters/{chapterId}/quiz": {
+      "get": {
+        "operationId": "TeacherQuizzesController_get",
+        "parameters": [
+          {
+            "name": "chapterId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Chapter quiz and checkpoint for the CMS",
+        "tags": [
+          "teacher-quizzes"
+        ]
+      },
+      "put": {
+        "operationId": "TeacherQuizzesController_upsert",
+        "parameters": [
+          {
+            "name": "chapterId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertQuizDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Replace the chapter quiz",
+        "tags": [
+          "teacher-quizzes"
+        ]
+      }
+    },
+    "/api/chapters/{chapterId}/quiz": {
+      "get": {
+        "operationId": "StudentQuizzesController_getQuiz",
+        "parameters": [
+          {
+            "name": "chapterId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Chapter quiz for student",
+        "tags": [
+          "student-quizzes"
+        ]
+      }
+    },
+    "/api/chapters/{chapterId}/checkpoint": {
+      "get": {
+        "operationId": "StudentQuizzesController_getCheckpoint",
+        "parameters": [
+          {
+            "name": "chapterId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Chapter checkpoint for student",
+        "tags": [
+          "student-quizzes"
+        ]
+      }
+    },
+    "/api/quizzes/{quizId}/attempts": {
+      "post": {
+        "operationId": "StudentQuizzesController_startAttempt",
+        "parameters": [
+          {
+            "name": "quizId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start or resume an attempt for a quiz",
+        "tags": [
+          "student-quizzes"
+        ]
+      }
+    },
+    "/api/attempts/{id}/answers": {
+      "post": {
+        "operationId": "StudentQuizzesController_submitAnswer",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitAnswerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Submit an answer for an attempt",
+        "tags": [
+          "student-quizzes"
+        ]
+      }
+    },
+    "/api/attempts/{id}/complete": {
+      "post": {
+        "operationId": "StudentQuizzesController_completeAttempt",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Complete an attempt and write points",
+        "tags": [
+          "student-quizzes"
+        ]
+      }
+    },
+    "/api/badges": {
+      "get": {
+        "operationId": "StudentBadgesController_getBadges",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get all badges with student earned status",
+        "tags": [
+          "badges"
+        ]
+      }
+    },
+    "/api/badges/{id}": {
+      "get": {
+        "operationId": "StudentBadgesController_getBadgeDetail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get badge detail with how to earn and criteria",
+        "tags": [
+          "badges"
+        ]
+      }
+    },
+    "/api/admin/badges": {
+      "get": {
+        "operationId": "AdminBadgesController_getBadges",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get the six badges with earning criteria and distribution stats",
+        "tags": [
+          "admin-badges"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminBadgesController_patchBadges",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchBadgesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update badge criteria and fields",
+        "tags": [
+          "admin-badges"
+        ]
+      }
+    },
+    "/api/teacher/badges/monitor": {
+      "get": {
+        "operationId": "TeacherBadgesController_getMonitor",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          },
+          {
+            "name": "classId",
+            "required": false,
+            "in": "query",
+            "description": "Filter by specific class ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Students in teacher classes x badges matrix monitor",
+        "tags": [
+          "teacher-badges"
+        ]
+      }
+    },
+    "/api/admin/students": {
+      "get": {
+        "operationId": "AdminStudentsController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "ACTIVE",
+                "INACTIVE"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Students in the admin school",
+        "tags": [
+          "admin-students"
+        ]
+      }
+    },
+    "/api/admin/students/{id}": {
+      "get": {
+        "operationId": "AdminStudentsController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Student detail",
+        "tags": [
+          "admin-students"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminStudentsController_updateStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStudentStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set a student ACTIVE or INACTIVE",
+        "tags": [
+          "admin-students"
+        ]
+      }
+    },
+    "/api/admin/students/{id}/approve": {
+      "post": {
+        "operationId": "AdminStudentsController_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Approve the student account",
+        "tags": [
+          "admin-students"
+        ]
+      }
+    },
+    "/api/admin/students/{id}/move-class": {
+      "post": {
+        "operationId": "AdminStudentsController_moveClass",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveClassDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add the student to another class",
+        "tags": [
+          "admin-students"
+        ]
+      }
+    },
+    "/api/admin/staff": {
+      "get": {
+        "operationId": "AdminStaffController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "ACTIVE",
+                "INACTIVE"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Teachers and admins in this school",
+        "tags": [
+          "admin-staff"
+        ]
+      }
+    },
+    "/api/admin/staff/invite": {
+      "post": {
+        "operationId": "AdminStaffController_invite",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteStaffDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Invite a teacher",
+        "tags": [
+          "admin-staff"
+        ]
+      }
+    },
+    "/api/admin/staff/{id}": {
+      "get": {
+        "operationId": "AdminStaffController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Staff profile",
+        "tags": [
+          "admin-staff"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminStaffController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStaffDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a staff name",
+        "tags": [
+          "admin-staff"
+        ]
+      }
+    },
+    "/api/admin/staff/{id}/reactivate": {
+      "post": {
+        "operationId": "AdminStaffController_reactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set an inactive staff user back to active",
+        "tags": [
+          "admin-staff"
+        ]
+      }
+    },
+    "/api/teacher/students": {
+      "get": {
+        "operationId": "TeacherStudentsController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "ACTIVE",
+                "INACTIVE"
+              ]
+            }
+          },
+          {
+            "name": "classId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "class-id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Students in the teacher’s classes",
+        "tags": [
+          "teacher-students"
+        ]
+      }
+    },
+    "/api/teacher/students/{id}": {
+      "get": {
+        "operationId": "TeacherStudentsController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Student detail for a class the teacher owns",
+        "tags": [
+          "teacher-students"
+        ]
+      }
+    },
+    "/api/teacher/profile": {
+      "get": {
+        "operationId": "TeacherProfileController_profile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Signed-in teacher profile",
+        "tags": [
+          "teacher-profile"
+        ]
+      },
+      "patch": {
+        "operationId": "TeacherProfileController_updateProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTeacherProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update the signed-in teacher profile",
+        "tags": [
+          "teacher-profile"
+        ]
+      }
+    },
+    "/api/teacher/settings": {
+      "get": {
+        "operationId": "TeacherProfileController_settings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Signed-in teacher settings",
+        "tags": [
+          "teacher-profile"
+        ]
+      },
+      "patch": {
+        "operationId": "TeacherProfileController_updateSettings",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Merge signed-in teacher settings",
+        "tags": [
+          "teacher-profile"
+        ]
+      }
+    },
+    "/api/student/profile": {
+      "get": {
+        "operationId": "StudentProfileController_profile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Signed-in student profile",
+        "tags": [
+          "student-profile"
+        ]
+      },
+      "patch": {
+        "operationId": "StudentProfileController_updateProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStudentProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update the signed-in student profile",
+        "tags": [
+          "student-profile"
+        ]
+      }
+    },
+    "/api/student/settings": {
+      "get": {
+        "operationId": "StudentProfileController_settings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Signed-in student settings",
+        "tags": [
+          "student-profile"
+        ]
+      },
+      "patch": {
+        "operationId": "StudentProfileController_updateSettings",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Merge signed-in student settings",
+        "tags": [
+          "student-profile"
+        ]
+      }
+    },
+    "/api/uploads": {
+      "post": {
+        "operationId": "UploadsController_upload",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file",
+                  "purpose"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "purpose": {
+                    "type": "string",
+                    "enum": [
+                      "STORY_COVER",
+                      "PAGE_IMAGE",
+                      "CHAPTER_AUDIO",
+                      "BADGE_ART",
+                      "HERO_ART",
+                      "KINDNESS_MEDIA"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Store an image or chapter audio file",
+        "tags": [
+          "uploads"
+        ]
+      }
+    },
+    "/api/stories/{id}/progress": {
+      "put": {
+        "operationId": "ProgressController_putProgress",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutProgressDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Save reading progress for a story",
+        "tags": [
+          "progress"
+        ]
+      }
+    },
+    "/api/stories/{id}/chapters/{chapterId}/complete": {
+      "post": {
+        "operationId": "ProgressController_completeChapter",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "chapterId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mark a chapter complete",
+        "tags": [
+          "progress"
+        ]
+      }
+    },
+    "/api/student/reading-progress": {
+      "get": {
+        "operationId": "ProgressController_getReadingProgress",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Student reading progress summary and stories",
+        "tags": [
+          "progress"
+        ]
+      }
+    },
+    "/api/student/home": {
+      "get": {
+        "operationId": "ProgressController_getStudentHome",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Student home dashboard data",
+        "tags": [
+          "progress"
+        ]
+      }
+    },
+    "/api/student/points": {
+      "get": {
+        "operationId": "StudentPointsController_getPoints",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Paginated student points ledger plus today total",
+        "tags": [
+          "student-points"
+        ]
+      }
+    },
+    "/api/teacher/points/award": {
+      "post": {
+        "operationId": "TeacherPointsController_awardPoints",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AwardPointsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Award positive points to a student",
+        "tags": [
+          "teacher-points"
+        ]
+      }
+    },
+    "/api/teacher/points/history": {
+      "get": {
+        "operationId": "TeacherPointsController_getHistory",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Paginated points award history for the signed-in teacher",
+        "tags": [
+          "teacher-points"
+        ]
+      }
+    },
+    "/api/admin/point-rules": {
+      "get": {
+        "operationId": "AdminPointRulesController_getPointRules",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Summary card metrics and configurable point rules",
+        "tags": [
+          "admin-point-rules"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminPointRulesController_patchPointRules",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchPointRulesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update configurable point rules",
+        "tags": [
+          "admin-point-rules"
+        ]
+      }
+    },
+    "/api/student/leaderboard": {
+      "get": {
+        "operationId": "LeaderboardController_getLeaderboard",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "type": "number"
+            }
+          },
+          {
+            "name": "scope",
+            "required": false,
+            "in": "query",
+            "description": "Leaderboard scope: class or school",
+            "schema": {
+              "default": "class",
+              "type": "string",
+              "enum": [
+                "class",
+                "school"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Student kindness leaderboard by class or school",
+        "tags": [
+          "student-leaderboard"
+        ]
+      }
+    },
+    "/api/safe-space/reports": {
+      "post": {
+        "operationId": "StudentReportsController_createReport",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Submit a safe space report",
+        "tags": [
+          "safe-space"
+        ]
+      },
+      "get": {
+        "operationId": "StudentReportsController_listReports",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filter reports by status",
+            "schema": {
+              "example": "NEW",
+              "type": "string",
+              "enum": [
+                "NEW",
+                "REVIEWING",
+                "ADDRESSED"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Page number",
+            "schema": {
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "description": "Items per page",
+            "schema": {
+              "default": 10,
+              "example": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List submitted safe space reports",
+        "tags": [
+          "safe-space"
+        ]
+      }
+    },
+    "/api/safe-space/reports/{id}": {
+      "get": {
+        "operationId": "StudentReportsController_getReport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get safe space report detail",
+        "tags": [
+          "safe-space"
+        ]
+      }
+    },
+    "/api/safe-space/visits": {
+      "post": {
+        "operationId": "StudentReportsController_createVisit",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVisitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Record a safe space calm room visit",
+        "tags": [
+          "safe-space"
+        ]
+      }
+    },
+    "/api/teacher/safe-space/reports": {
+      "get": {
+        "operationId": "TeacherReportsController_listReports",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filter reports by status",
+            "schema": {
+              "example": "NEW",
+              "type": "string",
+              "enum": [
+                "NEW",
+                "REVIEWING",
+                "ADDRESSED"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Page number",
+            "schema": {
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "description": "Items per page",
+            "schema": {
+              "default": 10,
+              "example": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List safe space reports for teacher classes",
+        "tags": [
+          "teacher-safe-space"
+        ]
+      }
+    },
+    "/api/teacher/safe-space/reports/{id}": {
+      "get": {
+        "operationId": "TeacherReportsController_getReport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get safe space report detail with notes",
+        "tags": [
+          "teacher-safe-space"
+        ]
+      }
+    },
+    "/api/teacher/safe-space/reports/{id}/notes": {
+      "post": {
+        "operationId": "TeacherReportsController_addNote",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddReportNoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add note to safe space report",
+        "tags": [
+          "teacher-safe-space"
+        ]
+      }
+    },
+    "/api/admin/safe-space/reports": {
+      "get": {
+        "operationId": "AdminReportsController_listReports",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filter reports by status",
+            "schema": {
+              "example": "NEW",
+              "type": "string",
+              "enum": [
+                "NEW",
+                "REVIEWING",
+                "ADDRESSED"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Page number",
+            "schema": {
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "description": "Items per page",
+            "schema": {
+              "default": 10,
+              "example": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List safe space reports for school",
+        "tags": [
+          "admin-safe-space"
+        ]
+      }
+    },
+    "/api/admin/safe-space/reports/{id}": {
+      "get": {
+        "operationId": "AdminReportsController_getReport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get safe space report detail with notes and student nickname",
+        "tags": [
+          "admin-safe-space"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminReportsController_updateReport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update report status and/or assignee",
+        "tags": [
+          "admin-safe-space"
+        ]
+      }
+    },
+    "/api/admin/safe-space/reports/{id}/notes": {
+      "post": {
+        "operationId": "AdminReportsController_addNote",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddReportNoteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add note to safe space report",
+        "tags": [
+          "admin-safe-space"
+        ]
+      }
+    },
+    "/api/teacher/dashboard": {
+      "get": {
+        "operationId": "TeacherDashboardController_getDashboard",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Teacher dashboard overview and metrics",
+        "tags": [
+          "teacher-dashboard"
+        ]
+      }
+    },
+    "/api/admin/dashboard": {
+      "get": {
+        "operationId": "AdminDashboardController_getDashboard",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Admin dashboard overview and counts",
+        "tags": [
+          "admin-dashboard"
+        ]
+      }
+    },
+    "/api/game/eligibility": {
+      "get": {
+        "operationId": "StudentGameController_getEligibility",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Check student game show eligibility",
+        "tags": [
+          "game"
+        ]
+      }
+    },
+    "/api/game/how-to-play": {
+      "get": {
+        "operationId": "StudentGameController_getHowToPlay",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Static game show rules and how-to-play overview",
+        "tags": [
+          "game"
+        ]
+      }
+    },
+    "/api/game/queue": {
+      "post": {
+        "operationId": "StudentGameController_joinQueue",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinQueueDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Join matchmaking queue or start single practice match",
+        "tags": [
+          "game"
+        ]
+      },
+      "delete": {
+        "operationId": "StudentGameController_cancelQueue",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cancel active matchmaking ticket",
+        "tags": [
+          "game"
+        ]
+      }
+    },
+    "/api/game/matches/{id}": {
+      "get": {
+        "operationId": "StudentGameController_getMatchSnapshot",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get match snapshot for participant",
+        "tags": [
+          "game"
+        ]
+      }
+    },
+    "/api/game/matches/{id}/leave": {
+      "post": {
+        "operationId": "StudentGameController_leaveMatch",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Leave match and record leave timestamp",
+        "tags": [
+          "game"
+        ]
+      }
+    },
+    "/api/admin/game/matches": {
+      "get": {
+        "operationId": "AdminGameController_listMatches",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "perPage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": 10,
+              "type": "number"
+            }
+          },
+          {
+            "name": "mode",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "SINGLE",
+                "ONE_V_ONE",
+                "FIVE_V_FIVE"
+              ]
+            }
+          },
+          {
+            "name": "phase",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "QUEUED",
+                "COUNTDOWN",
+                "PLAYING",
+                "FINISHED",
+                "CANCELLED"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List game matches with mode and phase filters",
+        "tags": [
+          "admin-game"
+        ]
+      }
+    },
+    "/api/admin/game/matches/{id}": {
+      "get": {
+        "operationId": "AdminGameController_getMatchDetail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get game match detail with teams and participants",
+        "tags": [
+          "admin-game"
+        ]
+      }
+    },
+    "/api/admin/game/eligibility-config": {
+      "get": {
+        "operationId": "AdminGameController_getEligibilityConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get school game eligibility configuration",
+        "tags": [
+          "admin-game"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminGameController_updateEligibilityConfig",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEligibilityConfigDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update school game eligibility configuration",
+        "tags": [
+          "admin-game"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Wings of Power api",
+    "description": "Wings of Power api docs",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [
+    {
+      "name": "Wings of Power",
+      "description": ""
+    }
+  ],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "RegisterAdminDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Ada Admin"
+          },
+          "email": {
+            "type": "string",
+            "example": "admin@demo.school"
+          },
+          "password": {
+            "type": "string",
+            "example": "password1",
+            "minLength": 8
+          },
+          "confirmPassword": {
+            "type": "string",
+            "example": "password1",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "password",
+          "confirmPassword"
+        ]
+      },
+      "VerifyEmailDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "admin@demo.school"
+          },
+          "code": {
+            "type": "string",
+            "example": "453210"
+          }
+        },
+        "required": [
+          "email",
+          "code"
+        ]
+      },
+      "StaffLoginDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "admin@demo.school"
+          },
+          "password": {
+            "type": "string",
+            "example": "password1"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "ForgotPasswordDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "admin@demo.school"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "ResetPasswordDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "example": "453210"
+          },
+          "password": {
+            "type": "string",
+            "example": "password1",
+            "minLength": 8
+          },
+          "confirmPassword": {
+            "type": "string",
+            "example": "password1",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "token",
+          "password",
+          "confirmPassword"
+        ]
+      },
+      "SchoolProfileDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Demo Elementary"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "AcceptInviteDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "example": "invite-token"
+          },
+          "password": {
+            "type": "string",
+            "example": "password1",
+            "minLength": 8
+          },
+          "confirmPassword": {
+            "type": "string",
+            "example": "password1",
+            "minLength": 8
+          },
+          "name": {
+            "type": "string",
+            "example": "Ada Teacher"
+          }
+        },
+        "required": [
+          "token",
+          "password",
+          "confirmPassword",
+          "name"
+        ]
+      },
+      "JoinCodeDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "WING-4320"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "RegisterStudentDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "WING-4320"
+          },
+          "username": {
+            "type": "string",
+            "example": "wingkid"
+          },
+          "password": {
+            "type": "string",
+            "example": "password1",
+            "minLength": 8
+          },
+          "confirmPassword": {
+            "type": "string",
+            "example": "password1",
+            "minLength": 8
+          },
+          "nickname": {
+            "type": "string",
+            "example": "Wing"
+          },
+          "realName": {
+            "type": "string",
+            "example": "Wing Kid"
+          }
+        },
+        "required": [
+          "code",
+          "username",
+          "password",
+          "confirmPassword",
+          "nickname",
+          "realName"
+        ]
+      },
+      "StudentLoginDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "example": "wingkid"
+          },
+          "password": {
+            "type": "string",
+            "example": "password1"
+          },
+          "remember": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "SelectHeroDto": {
+        "type": "object",
+        "properties": {
+          "heroId": {
+            "type": "string",
+            "example": "hero-id"
+          }
+        },
+        "required": [
+          "heroId"
+        ]
+      },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": "string",
+            "example": "password1"
+          },
+          "next": {
+            "type": "string",
+            "example": "password2",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "current",
+          "next"
+        ]
+      },
+      "CreateClassRequestDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Grade 5 · Birch"
+          },
+          "grade": {
+            "type": "string",
+            "example": "Grade 5"
+          },
+          "ageGroup": {
+            "type": "string",
+            "enum": [
+              "AGE_6_9",
+              "AGE_10_13",
+              "ADULTS"
+            ],
+            "example": "AGE_10_13"
+          }
+        },
+        "required": [
+          "name",
+          "grade",
+          "ageGroup"
+        ]
+      },
+      "CodeRenewalDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "The posted code expired"
+          }
+        }
+      },
+      "CreateClassDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Grade 4 · Amber"
+          },
+          "grade": {
+            "type": "string",
+            "example": "Grade 4"
+          },
+          "ageGroup": {
+            "type": "string",
+            "enum": [
+              "AGE_6_9",
+              "AGE_10_13",
+              "ADULTS"
+            ],
+            "example": "AGE_6_9"
+          },
+          "teacherId": {
+            "type": "string",
+            "example": "teacher-id"
+          }
+        },
+        "required": [
+          "name",
+          "grade",
+          "ageGroup",
+          "teacherId"
+        ]
+      },
+      "ChangeTeacherDto": {
+        "type": "object",
+        "properties": {
+          "teacherId": {
+            "type": "string",
+            "example": "teacher-id"
+          }
+        },
+        "required": [
+          "teacherId"
+        ]
+      },
+      "CreateStoryDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "example": "The Kindness Bridge"
+          },
+          "synopsis": {
+            "type": "string"
+          },
+          "coverUrl": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "KINDNESS",
+              "COURAGE",
+              "CYBERBULLYING",
+              "FRIENDSHIP",
+              "OTHER"
+            ]
+          },
+          "ageGroup": {
+            "type": "string",
+            "enum": [
+              "AGE_6_9",
+              "AGE_10_13",
+              "ADULTS"
+            ],
+            "description": "AGE_6_9, AGE_10_13, or ADULTS"
+          },
+          "estimatedMinutes": {
+            "type": "number",
+            "example": 12
+          }
+        },
+        "required": [
+          "title",
+          "category",
+          "ageGroup"
+        ]
+      },
+      "UpdateStoryDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "synopsis": {
+            "type": "string"
+          },
+          "coverUrl": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "KINDNESS",
+              "COURAGE",
+              "CYBERBULLYING",
+              "FRIENDSHIP",
+              "OTHER"
+            ]
+          },
+          "ageGroup": {
+            "type": "string",
+            "enum": [
+              "AGE_6_9",
+              "AGE_10_13",
+              "ADULTS"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "PUBLISHED"
+            ]
+          },
+          "estimatedMinutes": {
+            "type": "number"
+          }
+        }
+      },
+      "CreateChapterDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "example": "Chapter 1"
+          },
+          "number": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "PageInputDto": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "number",
+            "example": 1
+          },
+          "bodyText": {
+            "type": "string"
+          },
+          "imageUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number"
+        ]
+      },
+      "PutPagesDto": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PageInputDto"
+            }
+          }
+        },
+        "required": [
+          "pages"
+        ]
+      },
+      "PutAudioDto": {
+        "type": "object",
+        "properties": {
+          "audioUrl": {
+            "type": "string"
+          },
+          "durationMs": {
+            "type": "number",
+            "example": 180000
+          }
+        },
+        "required": [
+          "audioUrl"
+        ]
+      },
+      "QuizOptionDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "example": "Tell a teacher"
+          },
+          "isCorrect": {
+            "type": "boolean"
+          },
+          "is_correct": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "QuizQuestionDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "MCQ",
+              "TRUE_FALSE",
+              "FREE_TEXT"
+            ]
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "hint": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuizOptionDto"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "prompt"
+        ]
+      },
+      "CheckpointQuizDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuizQuestionDto"
+            }
+          }
+        },
+        "required": [
+          "questions"
+        ]
+      },
+      "UpsertQuizDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuizQuestionDto"
+            }
+          },
+          "checkpoint": {
+            "$ref": "#/components/schemas/CheckpointQuizDto"
+          }
+        },
+        "required": [
+          "questions"
+        ]
+      },
+      "SubmitAnswerDto": {
+        "type": "object",
+        "properties": {
+          "questionId": {
+            "type": "string",
+            "description": "Question ID"
+          },
+          "question_id": {
+            "type": "string",
+            "description": "Question ID (snake_case)"
+          },
+          "optionId": {
+            "type": "string",
+            "description": "Option ID"
+          },
+          "option_id": {
+            "type": "string",
+            "description": "Option ID (snake_case)"
+          },
+          "freeText": {
+            "type": "string",
+            "description": "Free-text answer"
+          },
+          "free_text": {
+            "type": "string",
+            "description": "Free-text answer (snake_case)"
+          }
+        }
+      },
+      "UpdateBadgeItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Badge ID"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "KINDNESS_CHAMPION",
+              "STORY_EXPLORER",
+              "HELPING_HAND",
+              "SPEAK_UP",
+              "POSITIVE_LEADER",
+              "GAME_SHOW_READY"
+            ],
+            "description": "Badge code"
+          },
+          "title": {
+            "type": "string",
+            "description": "Badge title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Badge description"
+          },
+          "how_to_earn": {
+            "type": "string",
+            "description": "How to earn description"
+          },
+          "howToEarn": {
+            "type": "string",
+            "description": "How to earn description (camelCase alias)"
+          },
+          "art_url": {
+            "type": "string",
+            "description": "Badge art URL"
+          },
+          "artUrl": {
+            "type": "string",
+            "description": "Badge art URL (camelCase alias)"
+          },
+          "criteria_json": {
+            "type": "object",
+            "description": "Criteria JSON object"
+          },
+          "criteriaJson": {
+            "type": "object",
+            "description": "Criteria JSON object (camelCase alias)"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "Numeric threshold shorthand"
+          }
+        }
+      },
+      "PatchBadgesDto": {
+        "type": "object",
+        "properties": {
+          "badges": {
+            "description": "List of badges to update",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UpdateBadgeItemDto"
+            }
+          },
+          "id": {
+            "type": "string",
+            "description": "Badge ID for single badge update"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "KINDNESS_CHAMPION",
+              "STORY_EXPLORER",
+              "HELPING_HAND",
+              "SPEAK_UP",
+              "POSITIVE_LEADER",
+              "GAME_SHOW_READY"
+            ],
+            "description": "Badge code"
+          },
+          "title": {
+            "type": "string",
+            "description": "Badge title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Badge description"
+          },
+          "how_to_earn": {
+            "type": "string",
+            "description": "How to earn description"
+          },
+          "howToEarn": {
+            "type": "string",
+            "description": "How to earn description (camelCase alias)"
+          },
+          "art_url": {
+            "type": "string",
+            "description": "Badge art URL"
+          },
+          "artUrl": {
+            "type": "string",
+            "description": "Badge art URL (camelCase alias)"
+          },
+          "criteria_json": {
+            "type": "object",
+            "description": "Criteria JSON object"
+          },
+          "criteriaJson": {
+            "type": "object",
+            "description": "Criteria JSON object (camelCase alias)"
+          },
+          "threshold": {
+            "type": "number",
+            "description": "Numeric threshold shorthand"
+          }
+        }
+      },
+      "UpdateStudentStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "INACTIVE"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "MoveClassDto": {
+        "type": "object",
+        "properties": {
+          "classId": {
+            "type": "string",
+            "example": "class-id"
+          }
+        },
+        "required": [
+          "classId"
+        ]
+      },
+      "InviteStaffDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "teacher@school.edu"
+          },
+          "canAccessSafeSpace": {
+            "type": "boolean",
+            "example": false
+          }
+        },
+        "required": [
+          "email",
+          "canAccessSafeSpace"
+        ]
+      },
+      "UpdateStaffDto": {
+        "type": "object",
+        "properties": {
+          "realName": {
+            "type": "string",
+            "example": "Jonah Levy"
+          }
+        },
+        "required": [
+          "realName"
+        ]
+      },
+      "UpdateTeacherProfileDto": {
+        "type": "object",
+        "properties": {
+          "realName": {
+            "type": "string",
+            "example": "Sarah Mitchell"
+          }
+        }
+      },
+      "NotificationSettingsDto": {
+        "type": "object",
+        "properties": {
+          "stories": {
+            "type": "boolean"
+          },
+          "badges": {
+            "type": "boolean"
+          },
+          "game_show": {
+            "type": "boolean"
+          },
+          "safe_space": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SettingsDto": {
+        "type": "object",
+        "properties": {
+          "read_to_me": {
+            "type": "boolean",
+            "description": "Read to Me"
+          },
+          "sound": {
+            "type": "boolean",
+            "description": "Sound effect"
+          },
+          "notifications": {
+            "$ref": "#/components/schemas/NotificationSettingsDto"
+          }
+        }
+      },
+      "UpdateStudentProfileDto": {
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "example": "Sarah"
+          },
+          "avatarUrl": {
+            "type": "string",
+            "example": "https://cdn.example/avatar.png"
+          }
+        }
+      },
+      "PutProgressDto": {
+        "type": "object",
+        "properties": {
+          "chapterId": {
+            "type": "string",
+            "description": "Chapter ID"
+          },
+          "chapter_id": {
+            "type": "string",
+            "description": "Chapter ID (snake_case)"
+          },
+          "pageNumber": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "page_number": {
+            "type": "number",
+            "description": "Page number (snake_case)"
+          },
+          "percent": {
+            "type": "number",
+            "description": "Percent complete (0-100)"
+          },
+          "lastMode": {
+            "type": "string",
+            "enum": [
+              "READ",
+              "LISTEN"
+            ],
+            "description": "Last reading mode"
+          },
+          "last_mode": {
+            "type": "string",
+            "enum": [
+              "READ",
+              "LISTEN"
+            ],
+            "description": "Last reading mode (snake_case)"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "READ",
+              "LISTEN"
+            ],
+            "description": "Reading mode alias"
+          }
+        },
+        "required": [
+          "percent"
+        ]
+      },
+      "AwardPointsDto": {
+        "type": "object",
+        "properties": {
+          "studentId": {
+            "type": "string",
+            "description": "ID of the student receiving points"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Number of points to award (positive integer)"
+          },
+          "category": {
+            "type": "string",
+            "description": "Award category/label"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for awarding points"
+          }
+        },
+        "required": [
+          "studentId",
+          "amount",
+          "category"
+        ]
+      },
+      "PatchPointRulesDto": {
+        "type": "object",
+        "properties": {
+          "STORY_QUESTION": {
+            "type": "number",
+            "description": "Positive points per story question"
+          },
+          "KINDNESS_ROUND": {
+            "type": "number",
+            "description": "Kindness points per defense round"
+          },
+          "TEACHER_AWARD_MAX": {
+            "type": "number",
+            "description": "Maximum teacher award points"
+          },
+          "storyPoints": {
+            "type": "number",
+            "description": "Alias for STORY_QUESTION"
+          },
+          "kindnessPoints": {
+            "type": "number",
+            "description": "Alias for KINDNESS_ROUND"
+          },
+          "teacherAward": {
+            "type": "number",
+            "description": "Alias for TEACHER_AWARD_MAX"
+          }
+        }
+      },
+      "CreateReportDto": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "HURTFUL_WORDS",
+              "CYBERBULLYING",
+              "PHYSICAL_UNSAFE",
+              "SOMETHING_ELSE"
+            ],
+            "description": "Report category",
+            "example": "HURTFUL_WORDS"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Report body text up to 200 characters",
+            "example": "Someone said hurtful things to me during recess."
+          },
+          "feelSafe": {
+            "type": "boolean",
+            "description": "Whether student feels safe currently",
+            "example": true
+          },
+          "feel_safe": {
+            "type": "boolean",
+            "description": "Snake case alias for feelSafe",
+            "example": true
+          }
+        },
+        "required": [
+          "category",
+          "body"
+        ]
+      },
+      "CreateVisitDto": {
+        "type": "object",
+        "properties": {
+          "matchId": {
+            "type": "string",
+            "description": "Optional live match ID associated with calm room visit",
+            "example": "match_123"
+          },
+          "match_id": {
+            "type": "string",
+            "description": "Optional live match ID (snake_case alias)",
+            "example": "match_123"
+          }
+        }
+      },
+      "AddReportNoteDto": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Note body text",
+            "example": "Spoke with the student after class. Scheduled follow-up."
+          }
+        },
+        "required": [
+          "body"
+        ]
+      },
+      "UpdateReportDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "NEW",
+              "REVIEWING",
+              "ADDRESSED"
+            ],
+            "description": "Report status",
+            "example": "REVIEWING"
+          },
+          "assigneeId": {
+            "type": "string",
+            "description": "Assignee teacher user ID or null to unassign",
+            "example": "user-teacher-id"
+          },
+          "assignee_id": {
+            "type": "string",
+            "description": "Snake case alias for assigneeId",
+            "example": "user-teacher-id"
+          }
+        }
+      },
+      "JoinQueueDto": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "description": "Game mode: SINGLE, ONE_V_ONE, or FIVE_V_FIVE",
+            "enum": [
+              "SINGLE",
+              "ONE_V_ONE",
+              "FIVE_V_FIVE"
+            ]
+          },
+          "fixtureCode": {
+            "type": "string",
+            "description": "Optional fixture code for test/dev lobbies"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "UpdateEligibilityConfigDto": {
+        "type": "object",
+        "properties": {
+          "requiredStories": {
+            "type": "number",
+            "description": "Stories required for game show eligibility",
+            "example": 2
+          },
+          "requiredChapters": {
+            "type": "number",
+            "description": "Chapters required for game show eligibility",
+            "example": 6
+          },
+          "minQuizPercent": {
+            "type": "number",
+            "description": "Minimum mean chapter-quiz percentage required",
+            "example": 70
+          },
+          "required_stories": {
+            "type": "number",
+            "example": 2
+          },
+          "required_chapters": {
+            "type": "number",
+            "example": 6
+          },
+          "min_quiz_percent": {
+            "type": "number",
+            "example": 70
+          }
+        }
+      }
+    }
+  }
+}
