@@ -39,6 +39,7 @@ describe('RoundService', () => {
       gameAnswer: {
         create: jest.fn(),
         findMany: jest.fn(),
+        findFirst: jest.fn(),
       },
       gameShootout: {
         create: jest.fn(),
@@ -314,6 +315,7 @@ describe('RoundService', () => {
         roundId: 'round-q4-multi',
         submittedCount: 2,
         teamSize: 3,
+        allVoted: false,
       });
       expect(voteUpdate).not.toHaveProperty('optionIndex');
       expect(voteUpdate).not.toHaveProperty('tallies');
@@ -355,6 +357,270 @@ describe('RoundService', () => {
       const singleResult = await service.resolveVote('round-q4-1v1');
       expect(singleResult.winningOptionIndex).toBe(0);
       expect(singleResult.correct).toBe(true);
+
+      // 4. Strict majority tallies: (2, 2, 1) is a tie on top and awards no ball
+      const roundTie221 = {
+        ...mockRoundMulti,
+        answers: [
+          { participant_id: 'p1', voted_option_index: 0 },
+          { participant_id: 'p2', voted_option_index: 0 },
+          { participant_id: 'p3', voted_option_index: 1 },
+          { participant_id: 'p4', voted_option_index: 1 },
+          { participant_id: 'p5', voted_option_index: 2 },
+        ],
+      };
+      prisma.gameRound.findUnique.mockResolvedValue(roundTie221);
+      const tieResult = await service.resolveVote('round-q4-multi');
+      expect(tieResult.winningOptionIndex).toBeNull();
+      expect(tieResult.correct).toBe(false);
+      expect(tieResult.designatedShooterId).toBeNull();
+
+      // 5. Strict majority tallies: (A, A, B, B) tie awards no ball
+      const roundTieAABB = {
+        ...mockRoundMulti,
+        answers: [
+          { participant_id: 'p1', voted_option_index: 0 },
+          { participant_id: 'p2', voted_option_index: 0 },
+          { participant_id: 'p3', voted_option_index: 1 },
+          { participant_id: 'p4', voted_option_index: 1 },
+        ],
+      };
+      prisma.gameRound.findUnique.mockResolvedValue(roundTieAABB);
+      const tieAABBResult = await service.resolveVote('round-q4-multi');
+      expect(tieAABBResult.winningOptionIndex).toBeNull();
+      expect(tieAABBResult.correct).toBe(false);
+
+      // 6. Strict majority tallies: (3, 1, 1) awards the option with 3
+      const round311 = {
+        ...mockRoundMulti,
+        answers: [
+          { participant_id: 'p1', voted_option_index: 0 },
+          { participant_id: 'p2', voted_option_index: 0 },
+          { participant_id: 'p3', voted_option_index: 0 },
+          { participant_id: 'p4', voted_option_index: 1 },
+          { participant_id: 'p5', voted_option_index: 2 },
+        ],
+      };
+      prisma.gameRound.findUnique.mockResolvedValue(round311);
+      const res311 = await service.resolveVote('round-q4-multi');
+      expect(res311.winningOptionIndex).toBe(0);
+      expect(res311.correct).toBe(true);
+
+      // 7. One vote and four silent teammates -> that vote wins at 20s
+      const round1Vote = {
+        ...mockRoundMulti,
+        answers: [{ participant_id: 'p1', voted_option_index: 2 }],
+      };
+      prisma.gameRound.findUnique.mockResolvedValue(round1Vote);
+      const res1Vote = await service.resolveVote('round-q4-multi');
+      expect(res1Vote.winningOptionIndex).toBe(2);
+
+      // 8. Disconnected members not in denominator and early resolve
+      const roundWithDisconnected = {
+        id: 'round-q4-disc',
+        match_id: 'match-disc',
+        round_type: RoundType.Q4_FINALS,
+        phase: GameRoundPhase.VOTE,
+        match: {
+          mode: MatchMode.FIVE_V_FIVE,
+          participants: [
+            {
+              id: 'p1',
+              user_id: 'u1',
+              team_id: 't1',
+              is_connected: true,
+              left_at: null,
+            },
+            {
+              id: 'p2',
+              user_id: 'u2',
+              team_id: 't1',
+              is_connected: true,
+              left_at: null,
+            },
+            {
+              id: 'p3',
+              user_id: 'u3',
+              team_id: 't1',
+              is_connected: true,
+              left_at: null,
+            },
+            {
+              id: 'p4',
+              user_id: 'u4',
+              team_id: 't1',
+              is_connected: false,
+              left_at: null,
+            },
+            {
+              id: 'p5',
+              user_id: 'u5',
+              team_id: 't1',
+              is_connected: false,
+              left_at: new Date(),
+            },
+          ],
+        },
+      };
+      prisma.gameRound.findUnique.mockResolvedValue(roundWithDisconnected);
+      prisma.gameAnswer.findMany.mockResolvedValue([
+        { id: 'ans-1', participant_id: 'p1', voted_option_index: 0 },
+        { id: 'ans-2', participant_id: 'p2', voted_option_index: 0 },
+        { id: 'ans-3', participant_id: 'p3', voted_option_index: 1 },
+      ]);
+      const discVoteUpdate = await service.recordVote('round-q4-disc', 'p3', 1);
+      // Denominator is 3 connected members (p4, p5 excluded)
+      expect(discVoteUpdate.teamSize).toBe(3);
+      expect(discVoteUpdate.submittedCount).toBe(3);
+      expect(discVoteUpdate.allVoted).toBe(true);
+    });
+  });
+
+  describe('Pass once (T-BE-GAME-012)', () => {
+    beforeEach(() => {
+      service.resetState();
+    });
+
+    it('rejects pass in 1v1 mode and when team has no teammates', async () => {
+      const mockRound1v1 = {
+        id: 'round-pass-1v1',
+        round_type: RoundType.Q1_WARMUP,
+        phase: GameRoundPhase.ANSWER,
+        buzz_winner_id: 'p-solo',
+        match: {
+          mode: MatchMode.ONE_V_ONE,
+          participants: [
+            { id: 'p-solo', user_id: 'u-solo', team_id: 't-solo' },
+          ],
+          teams: [{ id: 't-solo' }],
+        },
+      };
+      prisma.gameRound.findUnique.mockResolvedValue(mockRound1v1);
+
+      await expect(service.pass('round-pass-1v1', 'p-solo')).rejects.toThrow(
+        /not allowed in 1v1 mode/i,
+      );
+    });
+
+    it('rejects pass in Q2 and Q4', async () => {
+      const mockRoundQ2 = {
+        id: 'round-pass-q2',
+        round_type: RoundType.Q2_DEFENSE,
+        phase: GameRoundPhase.ANSWER,
+        buzz_winner_id: 'p1',
+        match: {
+          mode: MatchMode.FIVE_V_FIVE,
+          participants: [{ id: 'p1', user_id: 'u1', team_id: 't1' }],
+        },
+      };
+      prisma.gameRound.findUnique.mockResolvedValue(mockRoundQ2);
+
+      await expect(service.pass('round-pass-q2', 'p1')).rejects.toThrow(
+        /only allowed in Q1 and Q3/i,
+      );
+    });
+
+    it('rejects pass from non-answerer', async () => {
+      const mockRound = {
+        id: 'round-pass-non',
+        round_type: RoundType.Q1_WARMUP,
+        phase: GameRoundPhase.ANSWER,
+        buzz_winner_id: 'p1',
+        match: {
+          mode: MatchMode.FIVE_V_FIVE,
+          participants: [
+            { id: 'p1', user_id: 'u1', team_id: 't1' },
+            { id: 'p2', user_id: 'u2', team_id: 't1' },
+          ],
+        },
+      };
+      prisma.gameRound.findUnique.mockResolvedValue(mockRound);
+
+      await expect(service.pass('round-pass-non', 'p2')).rejects.toThrow(
+        /only current answerer/i,
+      );
+    });
+
+    it('transfers answer right to lowest jersey_number teammate, resets deadline, and rejects second pass', async () => {
+      const mockRound = {
+        id: 'round-pass-success',
+        round_type: RoundType.Q1_WARMUP,
+        phase: GameRoundPhase.ANSWER,
+        buzz_winner_id: 'p-answerer',
+        deadline_at: new Date(Date.now() + 5000),
+        match: {
+          id: 'match-5v5',
+          mode: MatchMode.FIVE_V_FIVE,
+          participants: [
+            {
+              id: 'p-answerer',
+              user_id: 'u-ans',
+              team_id: 't1',
+              jersey_number: 1,
+              is_connected: true,
+              left_at: null,
+            },
+            {
+              id: 'p-teammate-high',
+              user_id: 'u-high',
+              team_id: 't1',
+              jersey_number: 9,
+              is_connected: true,
+              left_at: null,
+            },
+            {
+              id: 'p-teammate-low',
+              user_id: 'u-low',
+              team_id: 't1',
+              jersey_number: 3,
+              is_connected: true,
+              left_at: null,
+            },
+            {
+              id: 'p-teammate-disc',
+              user_id: 'u-disc',
+              team_id: 't1',
+              jersey_number: 2,
+              is_connected: false,
+              left_at: null,
+            },
+            {
+              id: 'p-opponent',
+              user_id: 'u-opp',
+              team_id: 't2',
+              jersey_number: 1,
+              is_connected: true,
+              left_at: null,
+            },
+          ],
+          teams: [{ id: 't1' }, { id: 't2' }],
+        },
+      };
+
+      prisma.gameRound.findUnique.mockResolvedValue(mockRound);
+      prisma.gameRound.update.mockResolvedValue({});
+
+      const passResult = await service.pass('round-pass-success', 'p-answerer');
+      // Lowest connected teammate is p-teammate-low (jersey 3, jersey 2 is disconnected)
+      expect(passResult.participantId).toBe('p-teammate-low');
+      expect(passResult.userId).toBe('u-low');
+      expect(prisma.gameRound.update).toHaveBeenCalledWith({
+        where: { id: 'round-pass-success' },
+        data: {
+          buzz_winner_id: 'p-teammate-low',
+          deadline_at: expect.any(Date),
+        },
+      });
+
+      // Second pass is rejected
+      const roundAfterPass = {
+        ...mockRound,
+        buzz_winner_id: 'p-teammate-low',
+      };
+      prisma.gameRound.findUnique.mockResolvedValue(roundAfterPass);
+      await expect(
+        service.pass('round-pass-success', 'p-teammate-low'),
+      ).rejects.toThrow(/pass already used/i);
     });
   });
 
@@ -397,6 +663,157 @@ describe('RoundService', () => {
       await expect(
         service.usePower('round-p', 'part-power', PowerCode.COLOR),
       ).rejects.toThrow(/already used/i);
+    });
+
+    it('Harmony power is rejected in 1v1 mode', async () => {
+      const mockParticipant = {
+        id: 'p-solo',
+        user_id: 'u-solo',
+        team_id: 't-solo',
+        power_used: false,
+      };
+      prisma.gameParticipant.findUnique.mockResolvedValue(mockParticipant);
+      prisma.gameRound.findUnique.mockResolvedValue({
+        id: 'round-1v1-harm',
+        round_type: RoundType.Q3_HOBBY,
+        phase: GameRoundPhase.ANSWER,
+        match: {
+          mode: MatchMode.ONE_V_ONE,
+          participants: [mockParticipant],
+        },
+      });
+
+      await expect(
+        service.usePower('round-1v1-harm', 'p-solo', PowerCode.HARMONY),
+      ).rejects.toThrow(/harmony not allowed in 1v1 mode/i);
+    });
+
+    it('power:help_request echoes prompt and options to connected teammates without key', async () => {
+      const mockRound = {
+        id: 'round-q3-help',
+        round_type: RoundType.Q3_HOBBY,
+        phase: GameRoundPhase.ANSWER,
+        buzz_winner_id: 'ans-part',
+        deadline_at: new Date(Date.now() + 10000),
+        match: {
+          id: 'match-5v5',
+          mode: MatchMode.FIVE_V_FIVE,
+          participants: [
+            {
+              id: 'ans-part',
+              user_id: 'u-ans',
+              team_id: 't1',
+              is_connected: true,
+              left_at: null,
+            },
+            {
+              id: 'teammate-1',
+              user_id: 'u-team1',
+              team_id: 't1',
+              is_connected: true,
+              left_at: null,
+            },
+            {
+              id: 'teammate-disc',
+              user_id: 'u-disc',
+              team_id: 't1',
+              is_connected: false,
+              left_at: null,
+            },
+            {
+              id: 'opp-part',
+              user_id: 'u-opp',
+              team_id: 't2',
+              is_connected: true,
+              left_at: null,
+            },
+          ],
+        },
+        question: {
+          id: 'q-pack-1',
+          prompt: 'What hobby helps reduce stress?',
+          options_json: [
+            { text: 'Painting', isCorrect: true },
+            { text: 'Bullying', isCorrect: false },
+          ],
+          round_type: RoundType.Q3_HOBBY,
+        },
+      };
+
+      prisma.gameRound.findUnique.mockResolvedValue(mockRound);
+
+      const helpRes = await service.requestHelp('round-q3-help', 'ans-part');
+      expect(helpRes.roundId).toBe('round-q3-help');
+      expect(helpRes.prompt).toBe('What hobby helps reduce stress?');
+      expect(helpRes.options).toEqual(['Painting', 'Bullying']);
+      expect((helpRes as any).correctIndex).toBeUndefined();
+      expect(helpRes.connectedTeammates).toHaveLength(1);
+      expect(helpRes.connectedTeammates[0].id).toBe('teammate-1');
+    });
+
+    it('power:help_suggest validates teammates, bounds, and accepts only first suggestion', async () => {
+      service.resetState();
+
+      const mockRound = {
+        id: 'round-q3-sug',
+        round_type: RoundType.Q3_HOBBY,
+        phase: GameRoundPhase.ANSWER,
+        buzz_winner_id: 'ans-part',
+        deadline_at: new Date(Date.now() + 10000),
+        match: {
+          id: 'match-5v5',
+          mode: MatchMode.FIVE_V_FIVE,
+          participants: [
+            { id: 'ans-part', user_id: 'u-ans', team_id: 't1' },
+            { id: 'team-part-1', user_id: 'u-team1', team_id: 't1' },
+            { id: 'team-part-2', user_id: 'u-team2', team_id: 't1' },
+            { id: 'opp-part', user_id: 'u-opp', team_id: 't2' },
+          ],
+        },
+        question: {
+          id: 'q-pack-1',
+          prompt: 'Question?',
+          options_json: ['Option 0', 'Option 1', 'Option 2'],
+          round_type: RoundType.Q3_HOBBY,
+        },
+      };
+
+      prisma.gameRound.findUnique.mockResolvedValue(mockRound);
+
+      // 1. Suggesting to themself rejected
+      await expect(
+        service.suggestHelp('round-q3-sug', 'u-ans', 'u-ans', 0),
+      ).rejects.toThrow(/cannot suggest to yourself/i);
+
+      // 2. Opponent suggestion rejected
+      await expect(
+        service.suggestHelp('round-q3-sug', 'u-opp', 'u-ans', 0),
+      ).rejects.toThrow(/opponents cannot suggest help/i);
+
+      // 3. Option index outside bounds rejected
+      await expect(
+        service.suggestHelp('round-q3-sug', 'u-team1', 'u-ans', 99),
+      ).rejects.toThrow(/outside options list/i);
+
+      // 4. Valid first suggestion succeeds
+      const firstSug = await service.suggestHelp(
+        'round-q3-sug',
+        'u-team1',
+        'u-ans',
+        1,
+      );
+      expect(firstSug).toEqual({
+        roundId: 'round-q3-sug',
+        fromUserId: 'u-team1',
+        forUserId: 'u-ans',
+        optionIndex: 1,
+      });
+      expect((firstSug as any).correctIndex).toBeUndefined();
+
+      // 5. Second suggestion rejected (first wins)
+      await expect(
+        service.suggestHelp('round-q3-sug', 'u-team2', 'u-ans', 0),
+      ).rejects.toThrow(/already been submitted/i);
     });
   });
 

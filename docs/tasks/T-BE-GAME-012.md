@@ -1,6 +1,6 @@
 # T-BE-GAME-012 — Pass once, majority tally, Harmony suggest
 
-**Status:** Not started
+**Status:** Done
 **Pair:** `wings_of_power_app/docs/game/tasks/T-GAME-012.md`
 **Phase:** 3
 **Depends on:** T-BE-GAME-011
@@ -46,4 +46,12 @@ Server-side pass, Q4 majority for a team of five, and Harmony’s teammate sugge
 
 ## Notes
 
--
+- Implemented `RoundService.pass` and `GameGateway.handlePass`: validates Q1/Q3 only, current answerer only, rejects in 1v1/single modes, enforces 1 pass per question, passes to lowest jersey_number among connected teammates, resets `deadlineAt` to +10s, emits `round:buzz_winner` to the match room and `round:waiting` with `TEAMMATE`/`OPPONENT` reasons, rejects original buzzer's later answer.
+- Implemented `RoundService.recordVote`, `resolveVote`, and `GameGateway.resolveVoteAndAdvance`: strict majority calculation among submitted votes (`maxVotes > totalSubmitted / 2`), ties award null / no ball, disconnected members excluded from denominator, early resolve when all connected members of the voting team have voted.
+- Implemented `RoundService.requestHelp` and `GameGateway.handleHelpRequest`: validates Q3 only, current answerer only, rejects 1v1, emits `power:help_request` with `{ roundId, prompt, options }` (no correct index) to connected teammates.
+- Implemented `RoundService.suggestHelp` and `GameGateway.handleHelpSuggest`: validates teammate relationship (rejects opponents), rejects self-suggestion, rejects out-of-bounds options, enforces first suggestion wins (rejects later ones), relays `{ roundId, fromUserId, optionIndex }` to answerer without key.
+- Verified validation:
+  - `ESLINT_USE_FLAT_CONFIG=false npx eslint src/modules/game test` passed cleanly with 0 errors.
+  - `yarn test src/modules/game/` passed (78/78 tests).
+  - `yarn test:e2e test/game.e2e-spec.ts` passed (12/12 tests).
+  - `yarn build` passed cleanly.

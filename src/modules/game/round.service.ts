@@ -101,7 +101,18 @@ export const FALLBACK_QUESTIONS: Record<RoundType, RoundQuestionData> = {
 
 @Injectable()
 export class RoundService {
+  private readonly passedRoundIds = new Set<string>();
+  private readonly roundSuggestions = new Map<
+    string,
+    { fromUserId: string; optionIndex: number }
+  >();
+
   constructor(private readonly prisma: PrismaService) {}
+
+  resetState(): void {
+    this.passedRoundIds.clear();
+    this.roundSuggestions.clear();
+  }
 
   async getTeamScores(matchId: string) {
     const teams = await this.prisma.gameTeam.findMany({
@@ -560,10 +571,29 @@ export class RoundService {
 
     const round = await this.prisma.gameRound.findUnique({
       where: { id: roundId },
+      include: {
+        match: {
+          include: {
+            participants: true,
+          },
+        },
+      },
     });
 
     if (!round) {
       throw new GameError('NOT_FOUND', 'Round not found');
+    }
+
+    if (
+      powerCode === PowerCode.HARMONY &&
+      (round.match?.mode === MatchMode.ONE_V_ONE ||
+        round.match?.mode === MatchMode.SINGLE ||
+        (round.match?.participants &&
+          round.match.participants.filter(
+            (p) => p.team_id === participant.team_id,
+          ).length <= 1))
+    ) {
+      throw new GameError('FORBIDDEN', 'Harmony not allowed in 1v1 mode');
     }
 
     await this.prisma.gameParticipant.update({
@@ -590,6 +620,104 @@ export class RoundService {
       userId: participant.user_id,
       powerCode,
       effect,
+    };
+  }
+
+  async pass(roundId: string, participantId: string) {
+    const round = await this.prisma.gameRound.findUnique({
+      where: { id: roundId },
+      include: {
+        match: {
+          include: {
+            participants: {
+              include: { user: true },
+            },
+            teams: true,
+          },
+        },
+      },
+    });
+
+    if (!round) {
+      throw new GameError('NOT_FOUND', 'Round not found');
+    }
+
+    if (
+      round.round_type !== RoundType.Q1_WARMUP &&
+      round.round_type !== RoundType.Q3_HOBBY
+    ) {
+      throw new GameError('FORBIDDEN', 'Pass only allowed in Q1 and Q3');
+    }
+
+    if (round.phase !== GameRoundPhase.ANSWER) {
+      throw new GameError('FORBIDDEN', 'Round is not in answer phase');
+    }
+
+    if (round.deadline_at && new Date() > round.deadline_at) {
+      throw new GameError('TOO_LATE', 'Answer deadline expired');
+    }
+
+    if (round.buzz_winner_id !== participantId) {
+      throw new GameError('FORBIDDEN', 'Only current answerer can pass');
+    }
+
+    if (
+      round.match.mode === MatchMode.ONE_V_ONE ||
+      round.match.mode === MatchMode.SINGLE
+    ) {
+      throw new GameError('FORBIDDEN', 'Pass not allowed in 1v1 mode');
+    }
+
+    if (this.passedRoundIds.has(roundId)) {
+      throw new GameError('FORBIDDEN', 'Pass already used for this question');
+    }
+
+    const passer = round.match.participants.find((p) => p.id === participantId);
+    if (!passer) {
+      throw new GameError('FORBIDDEN', 'Participant not found');
+    }
+
+    const eligibleTeammates = round.match.participants.filter(
+      (p) =>
+        p.team_id === passer.team_id &&
+        p.id !== passer.id &&
+        p.is_connected !== false &&
+        !p.left_at,
+    );
+
+    if (eligibleTeammates.length === 0) {
+      throw new GameError(
+        'FORBIDDEN',
+        'No connected teammate available to pass to',
+      );
+    }
+
+    eligibleTeammates.sort((a, b) => {
+      const ja = a.jersey_number ?? Number.MAX_SAFE_INTEGER;
+      const jb = b.jersey_number ?? Number.MAX_SAFE_INTEGER;
+      if (ja !== jb) return ja - jb;
+      return a.id.localeCompare(b.id);
+    });
+
+    const newAnswerer = eligibleTeammates[0];
+    this.passedRoundIds.add(roundId);
+
+    const newDeadline = new Date(Date.now() + 10000);
+    await this.prisma.gameRound.update({
+      where: { id: roundId },
+      data: {
+        buzz_winner_id: newAnswerer.id,
+        deadline_at: newDeadline,
+      },
+    });
+
+    return {
+      roundId,
+      participantId: newAnswerer.id,
+      userId: newAnswerer.user_id,
+      deadlineAt: newDeadline.toISOString(),
+      newAnswerer,
+      match: round.match,
     };
   }
 
@@ -626,6 +754,23 @@ export class RoundService {
       throw new GameError('FORBIDDEN', 'Participant not in this match');
     }
 
+    if (typeof optionIndex !== 'number' || optionIndex < 0) {
+      throw new GameError('FORBIDDEN', 'Invalid option index');
+    }
+
+    if (typeof this.prisma.gameAnswer?.findFirst === 'function') {
+      const existingVote = await this.prisma.gameAnswer.findFirst({
+        where: {
+          round_id: roundId,
+          participant_id: participantId,
+          voted_option_index: { not: null },
+        },
+      });
+      if (existingVote) {
+        throw new GameError('FORBIDDEN', 'Vote already submitted');
+      }
+    }
+
     await this.prisma.gameAnswer.create({
       data: {
         round_id: roundId,
@@ -642,14 +787,36 @@ export class RoundService {
       },
     });
 
-    const teamMembers = round.match.participants.filter(
-      (p) => p.team_id === participant.team_id,
+    let targetTeamId = participant.team_id;
+    if (round.buzz_winner_id) {
+      const buzzer = round.match.participants.find(
+        (p) => p.id === round.buzz_winner_id,
+      );
+      if (buzzer) {
+        targetTeamId = buzzer.team_id;
+      }
+    }
+
+    const connectedTeamMembers = round.match.participants.filter(
+      (p) =>
+        p.team_id === targetTeamId && p.is_connected !== false && !p.left_at,
     );
+
+    const teamAnswers = answers.filter(
+      (a) =>
+        !a.participant_id ||
+        connectedTeamMembers.some((m) => m.id === a.participant_id),
+    );
+
+    const submittedCount = teamAnswers.length;
+    const teamSize = connectedTeamMembers.length;
+    const allVoted = teamSize > 0 && submittedCount >= teamSize;
 
     return {
       roundId,
-      submittedCount: answers.length,
-      teamSize: teamMembers.length,
+      submittedCount,
+      teamSize,
+      allVoted,
     };
   }
 
@@ -684,33 +851,26 @@ export class RoundService {
     }
 
     let winningOptionIndex: number | null = null;
-    const matchMode = round.match.mode;
+    let maxVotes = 0;
+    let topOption: number | null = null;
+    let isTie = false;
 
-    if (
-      matchMode === MatchMode.ONE_V_ONE ||
-      matchMode === MatchMode.SINGLE ||
-      answers.length === 1
-    ) {
-      winningOptionIndex = answers[0]?.voted_option_index ?? null;
+    for (const [optStr, count] of Object.entries(tallies)) {
+      const opt = Number(optStr);
+      if (count > maxVotes) {
+        maxVotes = count;
+        topOption = opt;
+        isTie = false;
+      } else if (count === maxVotes) {
+        isTie = true;
+      }
+    }
+
+    const totalSubmitted = answers.length;
+    if (!isTie && topOption !== null && maxVotes > totalSubmitted / 2) {
+      winningOptionIndex = topOption;
     } else {
-      let maxVotes = 0;
-      let topOption: number | null = null;
-      let isTie = false;
-
-      for (const [optStr, count] of Object.entries(tallies)) {
-        const opt = Number(optStr);
-        if (count > maxVotes) {
-          maxVotes = count;
-          topOption = opt;
-          isTie = false;
-        } else if (count === maxVotes) {
-          isTie = true;
-        }
-      }
-
-      if (!isTie && topOption !== null) {
-        winningOptionIndex = topOption;
-      }
+      winningOptionIndex = null;
     }
 
     let correctIndex: number | undefined;
@@ -747,6 +907,191 @@ export class RoundService {
       tallies,
       correct: isCorrect,
       designatedShooterId,
+    };
+  }
+
+  async requestHelp(roundId: string, participantId: string) {
+    const round = await this.prisma.gameRound.findUnique({
+      where: { id: roundId },
+      include: {
+        match: {
+          include: {
+            participants: true,
+          },
+        },
+        question: true,
+      },
+    });
+
+    if (!round) {
+      throw new GameError('NOT_FOUND', 'Round not found');
+    }
+
+    if (round.round_type !== RoundType.Q3_HOBBY) {
+      throw new GameError('FORBIDDEN', 'Help request only allowed in Q3');
+    }
+
+    if (round.phase !== GameRoundPhase.ANSWER) {
+      throw new GameError('FORBIDDEN', 'Round is not in answer phase');
+    }
+
+    if (round.deadline_at && new Date() > round.deadline_at) {
+      throw new GameError('TOO_LATE', 'Answer deadline expired');
+    }
+
+    if (round.buzz_winner_id !== participantId) {
+      throw new GameError(
+        'FORBIDDEN',
+        'Only current answerer can request help',
+      );
+    }
+
+    if (
+      round.match.mode === MatchMode.ONE_V_ONE ||
+      round.match.mode === MatchMode.SINGLE
+    ) {
+      throw new GameError('FORBIDDEN', 'Help request not allowed in 1v1 mode');
+    }
+
+    const requester = round.match.participants.find(
+      (p) => p.id === participantId,
+    );
+    if (!requester) {
+      throw new GameError('FORBIDDEN', 'Participant not found');
+    }
+
+    const connectedTeammates = round.match.participants.filter(
+      (p) =>
+        p.team_id === requester.team_id &&
+        p.id !== requester.id &&
+        p.is_connected !== false &&
+        !p.left_at,
+    );
+
+    if (connectedTeammates.length === 0) {
+      throw new GameError(
+        'FORBIDDEN',
+        'No connected teammates available for help',
+      );
+    }
+
+    let prompt = '';
+    let options: string[] = [];
+    if (round.question) {
+      const parsed = this.parsePackQuestion(round.question);
+      prompt = parsed.prompt;
+      options = parsed.options;
+    } else {
+      const fallback = FALLBACK_QUESTIONS[round.round_type];
+      prompt = fallback?.prompt ?? '';
+      options = fallback?.options ?? [];
+    }
+
+    return {
+      roundId,
+      prompt,
+      options,
+      connectedTeammates,
+    };
+  }
+
+  async suggestHelp(
+    roundId: string,
+    senderUserId: string,
+    forUserId: string,
+    optionIndex: number,
+  ) {
+    if (senderUserId === forUserId) {
+      throw new GameError('FORBIDDEN', 'Cannot suggest to yourself');
+    }
+
+    if (this.roundSuggestions.has(roundId)) {
+      throw new GameError(
+        'FORBIDDEN',
+        'A suggestion has already been submitted for this round',
+      );
+    }
+
+    const round = await this.prisma.gameRound.findUnique({
+      where: { id: roundId },
+      include: {
+        match: {
+          include: {
+            participants: true,
+          },
+        },
+        question: true,
+      },
+    });
+
+    if (!round) {
+      throw new GameError('NOT_FOUND', 'Round not found');
+    }
+
+    if (round.round_type !== RoundType.Q3_HOBBY) {
+      throw new GameError('FORBIDDEN', 'Help suggest only allowed in Q3');
+    }
+
+    if (round.phase !== GameRoundPhase.ANSWER) {
+      throw new GameError('FORBIDDEN', 'Round is not in answer phase');
+    }
+
+    if (round.deadline_at && new Date() > round.deadline_at) {
+      throw new GameError('TOO_LATE', 'Answer deadline expired');
+    }
+
+    if (
+      round.match.mode === MatchMode.ONE_V_ONE ||
+      round.match.mode === MatchMode.SINGLE
+    ) {
+      throw new GameError('FORBIDDEN', 'Help suggest not allowed in 1v1 mode');
+    }
+
+    const sender = round.match.participants.find(
+      (p) => p.user_id === senderUserId,
+    );
+    const target = round.match.participants.find(
+      (p) => p.user_id === forUserId,
+    );
+
+    if (!sender || !target) {
+      throw new GameError('FORBIDDEN', 'Participant not in match');
+    }
+
+    if (sender.team_id !== target.team_id) {
+      throw new GameError('FORBIDDEN', 'Opponents cannot suggest help');
+    }
+
+    if (round.buzz_winner_id !== target.id) {
+      throw new GameError('FORBIDDEN', 'Target is not the current answerer');
+    }
+
+    let optionsCount = 4;
+    if (round.question) {
+      const parsed = this.parsePackQuestion(round.question);
+      optionsCount = parsed.options.length;
+    } else {
+      optionsCount = FALLBACK_QUESTIONS[round.round_type]?.options.length ?? 4;
+    }
+
+    if (
+      typeof optionIndex !== 'number' ||
+      optionIndex < 0 ||
+      optionIndex >= optionsCount
+    ) {
+      throw new GameError('FORBIDDEN', 'Option index outside options list');
+    }
+
+    this.roundSuggestions.set(roundId, {
+      fromUserId: senderUserId,
+      optionIndex,
+    });
+
+    return {
+      roundId,
+      fromUserId: senderUserId,
+      forUserId,
+      optionIndex,
     };
   }
 

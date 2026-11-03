@@ -546,28 +546,7 @@ export class GameGateway
       }
       await this.startNextRound(matchId);
     } else if (round.phase === GameRoundPhase.VOTE) {
-      const voteResult = await this.roundService.resolveVote(roundId);
-      if (this.server) {
-        this.server
-          .to(`match:${matchId}`)
-          .emit('round:vote_result', voteResult);
-      }
-      if (voteResult.correct && voteResult.designatedShooterId) {
-        const shoot = await this.roundService.startShootout(
-          roundId,
-          voteResult.designatedShooterId,
-        );
-        if (this.server) {
-          this.server.to(`match:${matchId}`).emit('shootout:start', shoot);
-        }
-        this.scheduleRoundTimer(matchId, roundId, 60000);
-      } else {
-        const complete = await this.roundService.completeRound(roundId);
-        if (this.server) {
-          this.server.to(`match:${matchId}`).emit('round:complete', complete);
-        }
-        await this.startNextRound(matchId);
-      }
+      await this.resolveVoteAndAdvance(matchId, roundId);
     } else if (round.phase === GameRoundPhase.SHOOTOUT) {
       const result = await this.roundService
         .submitShootoutSwipe(roundId, round.buzz_winner_id || '', false)
@@ -733,6 +712,38 @@ export class GameGateway
     }
   }
 
+  async resolveVoteAndAdvance(matchId: string, roundId: string): Promise<void> {
+    this.clearTimer(matchId);
+
+    const round = await this.prisma.gameRound.findUnique({
+      where: { id: roundId },
+    });
+    if (!round || round.phase !== GameRoundPhase.VOTE) {
+      return;
+    }
+
+    const voteResult = await this.roundService.resolveVote(roundId);
+    if (this.server) {
+      this.server.to(`match:${matchId}`).emit('round:vote_result', voteResult);
+    }
+    if (voteResult.correct && voteResult.designatedShooterId) {
+      const shoot = await this.roundService.startShootout(
+        roundId,
+        voteResult.designatedShooterId,
+      );
+      if (this.server) {
+        this.server.to(`match:${matchId}`).emit('shootout:start', shoot);
+      }
+      this.scheduleRoundTimer(matchId, roundId, 60000);
+    } else {
+      const complete = await this.roundService.completeRound(roundId);
+      if (this.server) {
+        this.server.to(`match:${matchId}`).emit('round:complete', complete);
+      }
+      await this.startNextRound(matchId);
+    }
+  }
+
   @SubscribeMessage('round:pass')
   async handlePass(
     @ConnectedSocket() client: Socket,
@@ -747,7 +758,6 @@ export class GameGateway
           user_id: userId,
           match: { rounds: { some: { id: data.roundId } } },
         },
-        include: { team: { include: { participants: true } } },
       });
       if (!participant) {
         client.emit('error', {
@@ -757,12 +767,35 @@ export class GameGateway
         return;
       }
 
-      if (participant.team.participants.length <= 1) {
-        client.emit('error', {
-          code: 'FORBIDDEN',
-          message: 'Cannot pass with single-player team',
-        });
-        return;
+      const passResult = await this.roundService.pass(
+        data.roundId,
+        participant.id,
+      );
+
+      if (this.server) {
+        this.server
+          .to(`match:${passResult.match.id}`)
+          .emit('round:buzz_winner', {
+            roundId: passResult.roundId,
+            participantId: passResult.participantId,
+            userId: passResult.userId,
+            deadlineAt: passResult.deadlineAt,
+          });
+
+        for (const p of passResult.match.participants) {
+          if (p.id !== passResult.participantId && p.user_id) {
+            const reason =
+              p.team_id === passResult.newAnswerer.team_id
+                ? 'TEAMMATE'
+                : 'OPPONENT';
+            this.server.to(`user:${p.user_id}`).emit('round:waiting', {
+              roundId: data.roundId,
+              reason,
+            });
+          }
+        }
+
+        this.scheduleRoundTimer(passResult.match.id, data.roundId, 10000);
       }
     } catch (err: any) {
       client.emit('error', {
@@ -806,9 +839,15 @@ export class GameGateway
       });
 
       if (this.server && round) {
-        this.server
-          .to(`match:${round.match_id}`)
-          .emit('round:vote_update', voteUpdate);
+        this.server.to(`match:${round.match_id}`).emit('round:vote_update', {
+          roundId: voteUpdate.roundId,
+          submittedCount: voteUpdate.submittedCount,
+          teamSize: voteUpdate.teamSize,
+        });
+
+        if (voteUpdate.allVoted) {
+          await this.resolveVoteAndAdvance(round.match_id, data.roundId);
+        }
       }
     } catch (err: any) {
       client.emit('error', {
@@ -872,13 +911,43 @@ export class GameGateway
     const userId = client.data?.userId;
     if (!userId || !data?.roundId) return;
 
-    const round = await this.prisma.gameRound.findUnique({
-      where: { id: data.roundId },
-    });
-    if (this.server && round) {
-      this.server.to(`match:${round.match_id}`).emit('power:help_request', {
-        roundId: data.roundId,
-        userId,
+    try {
+      const participant = await this.prisma.gameParticipant.findFirst({
+        where: {
+          user_id: userId,
+          match: { rounds: { some: { id: data.roundId } } },
+        },
+      });
+      if (!participant) {
+        client.emit('error', {
+          code: 'FORBIDDEN',
+          message: 'Participant not in match',
+        });
+        return;
+      }
+
+      const result = await this.roundService.requestHelp(
+        data.roundId,
+        participant.id,
+      );
+
+      if (this.server) {
+        for (const teammate of result.connectedTeammates) {
+          if (teammate.user_id) {
+            this.server
+              .to(`user:${teammate.user_id}`)
+              .emit('power:help_request', {
+                roundId: result.roundId,
+                prompt: result.prompt,
+                options: result.options,
+              });
+          }
+        }
+      }
+    } catch (err: any) {
+      client.emit('error', {
+        code: err.code || 'FORBIDDEN',
+        message: err.message,
       });
     }
   }
@@ -892,12 +961,25 @@ export class GameGateway
     const userId = client.data?.userId;
     if (!userId || !data?.roundId || !data?.forUserId) return;
 
-    if (this.server) {
-      this.server.to(`user:${data.forUserId}`).emit('power:help_suggest', {
-        roundId: data.roundId,
-        fromUserId: userId,
-        forUserId: data.forUserId,
-        optionIndex: data.optionIndex,
+    try {
+      const result = await this.roundService.suggestHelp(
+        data.roundId,
+        userId,
+        data.forUserId,
+        data.optionIndex,
+      );
+
+      if (this.server) {
+        this.server.to(`user:${result.forUserId}`).emit('power:help_suggest', {
+          roundId: result.roundId,
+          fromUserId: result.fromUserId,
+          optionIndex: result.optionIndex,
+        });
+      }
+    } catch (err: any) {
+      client.emit('error', {
+        code: err.code || 'FORBIDDEN',
+        message: err.message,
       });
     }
   }

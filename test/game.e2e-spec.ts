@@ -1,12 +1,15 @@
 import { INestApplication } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { io, Socket } from 'socket.io-client';
 import * as request from 'supertest';
 import {
+  GameRoundPhase,
   JoinRequestStatus,
   MatchMode,
   MatchPhase,
   Role,
+  RoundType,
   UserStatus,
 } from 'prisma/generated/client';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -449,5 +452,458 @@ describe('Game REST & Socket connect (e2e)', () => {
       .expect(422);
 
     expect(res.body.message).toMatch(/not eligible/i);
+  });
+
+  describe('T-BE-GAME-012 Realtime Tests (Pass, Q4 Majority, Harmony Suggest)', () => {
+    let jwtService: JwtService;
+    const testSockets: Socket[] = [];
+    const testUsers: any[] = [];
+    let opponentUser: any;
+
+    beforeAll(async () => {
+      jwtService = app.get(JwtService);
+      const hash = await bcrypt.hash('change-me', 10);
+
+      // Create 5 team students
+      for (let i = 1; i <= 5; i++) {
+        const u = await prisma.user.create({
+          data: {
+            username: `t_user_${i}_${runId}`,
+            password_hash: hash,
+            role: Role.STUDENT,
+            status: UserStatus.ACTIVE,
+            nickname: `TPlayer ${i}`,
+            school_id: schoolId,
+          },
+        });
+        testUsers.push(u);
+      }
+
+      // Create 1 opponent student
+      opponentUser = await prisma.user.create({
+        data: {
+          username: `t_opp_${runId}`,
+          password_hash: hash,
+          role: Role.STUDENT,
+          status: UserStatus.ACTIVE,
+          nickname: `Opponent`,
+          school_id: schoolId,
+        },
+      });
+    });
+
+    afterEach(() => {
+      while (testSockets.length > 0) {
+        const s = testSockets.pop();
+        if (s && s.connected) {
+          s.close();
+        }
+      }
+    });
+
+    async function connectSocket(u: any): Promise<Socket> {
+      const token = jwtService.sign({ sub: u.id, role: Role.STUDENT });
+      const s = io(serverUrl, {
+        auth: { token },
+        transports: ['websocket'],
+        reconnection: false,
+        autoConnect: false,
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error('Socket connect timeout')),
+          5000,
+        );
+        s.once('connect', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        s.once('connect_error', (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+        s.connect();
+      });
+
+      await new Promise((r) => setTimeout(r, 100));
+      testSockets.push(s);
+      return s;
+    }
+
+    async function createMatchWithTeams(mode: MatchMode, teamLabels: string[]) {
+      const match = await prisma.gameMatch.create({
+        data: {
+          school_id: schoolId,
+          mode,
+          phase: MatchPhase.PLAYING,
+          started_at: new Date(),
+        },
+      });
+      const teams: any[] = [];
+      for (const label of teamLabels) {
+        const team = await prisma.gameTeam.create({
+          data: {
+            match_id: match.id,
+            label,
+            score_xp: 0,
+            score_kindness: 0,
+            score_baskets: 0,
+          },
+        });
+        teams.push(team);
+      }
+      return { match, teams };
+    }
+
+    it('9. 1v1 match: round:pass is rejected with FORBIDDEN', async () => {
+      const { match, teams } = await createMatchWithTeams(MatchMode.ONE_V_ONE, [
+        'Solo A',
+        'Solo B',
+      ]);
+
+      const pSolo = await prisma.gameParticipant.create({
+        data: {
+          match_id: match.id,
+          team_id: teams[0].id,
+          user_id: testUsers[0].id,
+          is_connected: true,
+          jersey_number: 1,
+          power_used: false,
+        },
+      });
+
+      const round1v1 = await prisma.gameRound.create({
+        data: {
+          match_id: match.id,
+          round_type: RoundType.Q1_WARMUP,
+          number: 1,
+          phase: GameRoundPhase.ANSWER,
+          buzz_winner_id: pSolo.id,
+          deadline_at: new Date(Date.now() + 10000),
+        },
+      });
+
+      const socket = await connectSocket(testUsers[0]);
+
+      const errPromise = new Promise<any>((resolve) => {
+        socket.once('error', resolve);
+      });
+
+      socket.emit('round:pass', { roundId: round1v1.id });
+
+      const err = await errPromise;
+      expect(err.code).toBe('FORBIDDEN');
+      expect(err.message).toMatch(/1v1 mode|single-player/i);
+    });
+
+    it('10. Multi-student match: pass transfers answer right once, original buzzer later answer rejected, teammate grades, second pass rejected', async () => {
+      const { match, teams } = await createMatchWithTeams(
+        MatchMode.FIVE_V_FIVE,
+        ['Team Blue', 'Team Red'],
+      );
+
+      const p1 = await prisma.gameParticipant.create({
+        data: {
+          match_id: match.id,
+          team_id: teams[0].id,
+          user_id: testUsers[0].id,
+          jersey_number: 5,
+          is_connected: true,
+          power_used: false,
+        },
+      });
+      const p2 = await prisma.gameParticipant.create({
+        data: {
+          match_id: match.id,
+          team_id: teams[0].id,
+          user_id: testUsers[1].id,
+          jersey_number: 2,
+          is_connected: true,
+          power_used: false,
+        },
+      });
+      await prisma.gameParticipant.create({
+        data: {
+          match_id: match.id,
+          team_id: teams[0].id,
+          user_id: testUsers[2].id,
+          jersey_number: 8,
+          is_connected: true,
+          power_used: false,
+        },
+      });
+      await prisma.gameParticipant.create({
+        data: {
+          match_id: match.id,
+          team_id: teams[1].id,
+          user_id: opponentUser.id,
+          jersey_number: 1,
+          is_connected: true,
+          power_used: false,
+        },
+      });
+
+      const round = await prisma.gameRound.create({
+        data: {
+          match_id: match.id,
+          round_type: RoundType.Q1_WARMUP,
+          number: 1,
+          phase: GameRoundPhase.ANSWER,
+          buzz_winner_id: p1.id,
+          deadline_at: new Date(Date.now() + 10000),
+        },
+      });
+
+      const s1 = await connectSocket(testUsers[0]);
+      const s2 = await connectSocket(testUsers[1]);
+      const sOpp = await connectSocket(opponentUser);
+
+      // S2 expects round:buzz_winner with deadlineAt reset
+      const s2WinnerPromise = new Promise<any>((resolve) => {
+        s2.once('round:buzz_winner', resolve);
+      });
+      // S1 expects round:waiting with reason TEAMMATE
+      const s1WaitingPromise = new Promise<any>((resolve) => {
+        s1.once('round:waiting', resolve);
+      });
+      // sOpp expects round:waiting with reason OPPONENT
+      const sOppWaitingPromise = new Promise<any>((resolve) => {
+        sOpp.once('round:waiting', resolve);
+      });
+
+      s1.emit('round:pass', { roundId: round.id });
+
+      const buzzWinner = await s2WinnerPromise;
+      expect(buzzWinner.roundId).toBe(round.id);
+      expect(buzzWinner.participantId).toBe(p2.id); // Lowest jersey_number (2 < 8)
+      expect(buzzWinner.userId).toBe(testUsers[1].id);
+      expect(buzzWinner.deadlineAt).toBeDefined();
+
+      const s1Wait = await s1WaitingPromise;
+      expect(s1Wait.reason).toBe('TEAMMATE');
+
+      const sOppWait = await sOppWaitingPromise;
+      expect(sOppWait.reason).toBe('OPPONENT');
+
+      // Original buzzer s1 calls round:answer -> rejected
+      const s1AnswerErrPromise = new Promise<any>((resolve) => {
+        s1.once('error', resolve);
+      });
+      s1.emit('round:answer', { roundId: round.id, optionIndex: 0 });
+      const answerErr = await s1AnswerErrPromise;
+      expect(answerErr.code).toBe('FORBIDDEN');
+
+      // Second pass from s2 is rejected
+      const s2PassErrPromise = new Promise<any>((resolve) => {
+        s2.once('error', resolve);
+      });
+      s2.emit('round:pass', { roundId: round.id });
+      const passErr = await s2PassErrPromise;
+      expect(passErr.code).toBe('FORBIDDEN');
+      expect(passErr.message).toMatch(/pass already used/i);
+
+      // Teammate s2 answers -> grades
+      const s2AnswerResultPromise = new Promise<any>((resolve) => {
+        s2.once('round:answer_result', resolve);
+      });
+      s2.emit('round:answer', { roundId: round.id, optionIndex: 0 });
+      const ansResult = await s2AnswerResultPromise;
+      expect(ansResult.roundId).toBe(round.id);
+      expect(ansResult.correct).toBe(true);
+    });
+
+    it('11. Harmony power:help_request echoes prompt & options without key; opponent & self suggest rejected; first suggestion relays; later rejected', async () => {
+      const { match, teams } = await createMatchWithTeams(
+        MatchMode.FIVE_V_FIVE,
+        ['Team Harmony', 'Team Rivals'],
+      );
+
+      const pAns = await prisma.gameParticipant.create({
+        data: {
+          match_id: match.id,
+          team_id: teams[0].id,
+          user_id: testUsers[0].id,
+          jersey_number: 1,
+          is_connected: true,
+          power_used: false,
+        },
+      });
+      await prisma.gameParticipant.create({
+        data: {
+          match_id: match.id,
+          team_id: teams[0].id,
+          user_id: testUsers[1].id,
+          jersey_number: 2,
+          is_connected: true,
+          power_used: false,
+        },
+      });
+      await prisma.gameParticipant.create({
+        data: {
+          match_id: match.id,
+          team_id: teams[0].id,
+          user_id: testUsers[2].id,
+          jersey_number: 3,
+          is_connected: true,
+          power_used: false,
+        },
+      });
+      await prisma.gameParticipant.create({
+        data: {
+          match_id: match.id,
+          team_id: teams[1].id,
+          user_id: opponentUser.id,
+          jersey_number: 1,
+          is_connected: true,
+          power_used: false,
+        },
+      });
+
+      const round = await prisma.gameRound.create({
+        data: {
+          match_id: match.id,
+          round_type: RoundType.Q3_HOBBY,
+          number: 3,
+          phase: GameRoundPhase.ANSWER,
+          buzz_winner_id: pAns.id,
+          deadline_at: new Date(Date.now() + 15000),
+        },
+      });
+
+      const sAns = await connectSocket(testUsers[0]);
+      const sTeam1 = await connectSocket(testUsers[1]);
+      const sTeam2 = await connectSocket(testUsers[2]);
+      const sOpp = await connectSocket(opponentUser);
+
+      // Teammate 1 expects power:help_request with prompt and options and NO correct index
+      const helpReqPromise = new Promise<any>((resolve) => {
+        sTeam1.once('power:help_request', resolve);
+      });
+
+      sAns.emit('power:help_request', { roundId: round.id });
+
+      const helpReq = await helpReqPromise;
+      expect(helpReq.roundId).toBe(round.id);
+      expect(helpReq.prompt).toBeDefined();
+      expect(Array.isArray(helpReq.options)).toBe(true);
+      expect(helpReq.correctIndex).toBeUndefined();
+
+      // Opponent suggest is rejected
+      const oppErrPromise = new Promise<any>((resolve) => {
+        sOpp.once('error', resolve);
+      });
+      sOpp.emit('power:help_suggest', {
+        roundId: round.id,
+        forUserId: testUsers[0].id,
+        optionIndex: 0,
+      });
+      const oppErr = await oppErrPromise;
+      expect(oppErr.code).toBe('FORBIDDEN');
+      expect(oppErr.message).toMatch(/opponents cannot suggest/i);
+
+      // Self-suggestion rejected
+      const selfErrPromise = new Promise<any>((resolve) => {
+        sAns.once('error', resolve);
+      });
+      sAns.emit('power:help_suggest', {
+        roundId: round.id,
+        forUserId: testUsers[0].id,
+        optionIndex: 0,
+      });
+      const selfErr = await selfErrPromise;
+      expect(selfErr.code).toBe('FORBIDDEN');
+      expect(selfErr.message).toMatch(/cannot suggest to yourself/i);
+
+      // First valid suggestion from teammate 1 relayed to answerer
+      const sugRelayPromise = new Promise<any>((resolve) => {
+        sAns.once('power:help_suggest', resolve);
+      });
+
+      sTeam1.emit('power:help_suggest', {
+        roundId: round.id,
+        forUserId: testUsers[0].id,
+        optionIndex: 1,
+      });
+
+      const relayed = await sugRelayPromise;
+      expect(relayed.roundId).toBe(round.id);
+      expect(relayed.fromUserId).toBe(testUsers[1].id);
+      expect(relayed.optionIndex).toBe(1);
+      expect(relayed.correctIndex).toBeUndefined();
+
+      // Later suggestion from teammate 2 rejected
+      const secondSugErrPromise = new Promise<any>((resolve) => {
+        sTeam2.once('error', resolve);
+      });
+      sTeam2.emit('power:help_suggest', {
+        roundId: round.id,
+        forUserId: testUsers[0].id,
+        optionIndex: 2,
+      });
+      const secondSugErr = await secondSugErrPromise;
+      expect(secondSugErr.code).toBe('FORBIDDEN');
+      expect(secondSugErr.message).toMatch(/already been submitted/i);
+    });
+
+    it('12. Q4 Voting: strict majority (3 for 0, 2 for 1) and early resolve before 20s when all 5 vote', async () => {
+      const { match, teams } = await createMatchWithTeams(
+        MatchMode.FIVE_V_FIVE,
+        ['Finalists'],
+      );
+
+      for (let i = 0; i < 5; i++) {
+        await prisma.gameParticipant.create({
+          data: {
+            match_id: match.id,
+            team_id: teams[0].id,
+            user_id: testUsers[i].id,
+            jersey_number: i + 1,
+            is_connected: true,
+            power_used: false,
+          },
+        });
+      }
+
+      const round = await prisma.gameRound.create({
+        data: {
+          match_id: match.id,
+          round_type: RoundType.Q4_FINALS,
+          number: 4,
+          phase: GameRoundPhase.VOTE,
+          deadline_at: new Date(Date.now() + 20000),
+        },
+      });
+
+      const sockets: Socket[] = [];
+      for (let i = 0; i < 5; i++) {
+        const s = await connectSocket(testUsers[i]);
+        sockets.push(s);
+      }
+
+      // Track vote_result event on socket 0
+      const voteResultPromise = new Promise<any>((resolve) => {
+        sockets[0].once('round:vote_result', resolve);
+      });
+
+      const startTime = Date.now();
+
+      // 3 vote for 0, 2 vote for 1
+      sockets[0].emit('round:vote', { roundId: round.id, optionIndex: 0 });
+      sockets[1].emit('round:vote', { roundId: round.id, optionIndex: 0 });
+      sockets[2].emit('round:vote', { roundId: round.id, optionIndex: 0 });
+      sockets[3].emit('round:vote', { roundId: round.id, optionIndex: 1 });
+      sockets[4].emit('round:vote', { roundId: round.id, optionIndex: 1 });
+
+      const voteResult = await voteResultPromise;
+      const elapsed = Date.now() - startTime;
+
+      // Resolved well before 20s (early resolve)
+      expect(elapsed).toBeLessThan(10000);
+      expect(voteResult.roundId).toBe(round.id);
+      expect(voteResult.winningOptionIndex).toBe(0); // 3 > 2 (strict majority)
+      expect(voteResult.tallies).toEqual({ 0: 3, 1: 2 });
+      expect(voteResult.correct).toBe(true);
+    });
   });
 });

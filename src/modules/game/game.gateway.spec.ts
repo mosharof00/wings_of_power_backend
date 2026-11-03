@@ -39,6 +39,12 @@ describe('GameGateway', () => {
         update: jest.fn(),
         updateMany: jest.fn(),
       },
+      gameRound: {
+        create: jest.fn(),
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        update: jest.fn(),
+      },
       matchmakingTicket: {
         create: jest.fn(),
         findFirst: jest.fn(),
@@ -577,6 +583,166 @@ describe('GameGateway', () => {
       expect(mockServer.emit).toHaveBeenCalledWith('match:phase', {
         matchId: 'match-countdown-test',
         phase: MatchPhase.PLAYING,
+      });
+    });
+  });
+
+  describe('Pass, Q4 Vote, and Harmony (T-BE-GAME-012 Gateway Events)', () => {
+    it('handlePass transfers answerer, emits buzz_winner and waiting events, and resets timer', async () => {
+      const mockClient: any = {
+        data: { userId: 'u-passer' },
+        emit: jest.fn(),
+      };
+
+      prisma.gameParticipant.findFirst.mockResolvedValue({
+        id: 'p-passer',
+        user_id: 'u-passer',
+        team_id: 't1',
+      });
+
+      jest.spyOn(gateway.roundService, 'pass').mockResolvedValue({
+        roundId: 'r-pass-1',
+        participantId: 'p-new',
+        userId: 'u-new',
+        deadlineAt: '2026-11-03T12:00:10.000Z',
+        newAnswerer: { id: 'p-new', team_id: 't1' },
+        match: {
+          id: 'm-1',
+          participants: [
+            { id: 'p-passer', user_id: 'u-passer', team_id: 't1' },
+            { id: 'p-new', user_id: 'u-new', team_id: 't1' },
+            { id: 'p-opp', user_id: 'u-opp', team_id: 't2' },
+          ],
+        },
+      } as any);
+
+      const scheduleSpy = jest.spyOn(gateway, 'scheduleRoundTimer');
+
+      await gateway.handlePass(mockClient, { roundId: 'r-pass-1' });
+
+      // Emits round:buzz_winner to match
+      expect(mockServer.to).toHaveBeenCalledWith('match:m-1');
+      expect(mockServer.emit).toHaveBeenCalledWith('round:buzz_winner', {
+        roundId: 'r-pass-1',
+        participantId: 'p-new',
+        userId: 'u-new',
+        deadlineAt: '2026-11-03T12:00:10.000Z',
+      });
+
+      // Emits round:waiting with TEAMMATE to u-passer
+      expect(mockServer.to).toHaveBeenCalledWith('user:u-passer');
+      expect(mockServer.emit).toHaveBeenCalledWith('round:waiting', {
+        roundId: 'r-pass-1',
+        reason: 'TEAMMATE',
+      });
+
+      // Emits round:waiting with OPPONENT to u-opp
+      expect(mockServer.to).toHaveBeenCalledWith('user:u-opp');
+      expect(mockServer.emit).toHaveBeenCalledWith('round:waiting', {
+        roundId: 'r-pass-1',
+        reason: 'OPPONENT',
+      });
+
+      // Resets answer timer
+      expect(scheduleSpy).toHaveBeenCalledWith('m-1', 'r-pass-1', 10000);
+    });
+
+    it('handleVote emits round:vote_update and triggers early resolve when allVoted is true', async () => {
+      const mockClient: any = {
+        data: { userId: 'u-voter' },
+        emit: jest.fn(),
+      };
+
+      prisma.gameParticipant.findFirst.mockResolvedValue({
+        id: 'p-voter',
+        user_id: 'u-voter',
+        team_id: 't1',
+      });
+
+      jest.spyOn(gateway.roundService, 'recordVote').mockResolvedValue({
+        roundId: 'r-vote-1',
+        submittedCount: 3,
+        teamSize: 3,
+        allVoted: true,
+      });
+
+      prisma.gameRound.findUnique.mockResolvedValue({
+        id: 'r-vote-1',
+        match_id: 'm-vote',
+        phase: 'VOTE',
+      });
+
+      const resolveSpy = jest
+        .spyOn(gateway, 'resolveVoteAndAdvance')
+        .mockResolvedValue();
+
+      await gateway.handleVote(mockClient, {
+        roundId: 'r-vote-1',
+        optionIndex: 0,
+      });
+
+      expect(mockServer.to).toHaveBeenCalledWith('match:m-vote');
+      expect(mockServer.emit).toHaveBeenCalledWith('round:vote_update', {
+        roundId: 'r-vote-1',
+        submittedCount: 3,
+        teamSize: 3,
+      });
+
+      expect(resolveSpy).toHaveBeenCalledWith('m-vote', 'r-vote-1');
+    });
+
+    it('handleHelpRequest echoes prompt and options to connected teammates', async () => {
+      const mockClient: any = {
+        data: { userId: 'u-ans' },
+        emit: jest.fn(),
+      };
+
+      prisma.gameParticipant.findFirst.mockResolvedValue({
+        id: 'p-ans',
+        user_id: 'u-ans',
+      });
+
+      jest.spyOn(gateway.roundService, 'requestHelp').mockResolvedValue({
+        roundId: 'r-help-1',
+        prompt: 'Trivia prompt',
+        options: ['A', 'B', 'C', 'D'],
+        connectedTeammates: [{ id: 'p-team1', user_id: 'u-team1' }] as any,
+      });
+
+      await gateway.handleHelpRequest(mockClient, { roundId: 'r-help-1' });
+
+      expect(mockServer.to).toHaveBeenCalledWith('user:u-team1');
+      expect(mockServer.emit).toHaveBeenCalledWith('power:help_request', {
+        roundId: 'r-help-1',
+        prompt: 'Trivia prompt',
+        options: ['A', 'B', 'C', 'D'],
+      });
+    });
+
+    it('handleHelpSuggest relays optionIndex to answerer', async () => {
+      const mockClient: any = {
+        data: { userId: 'u-suggest' },
+        emit: jest.fn(),
+      };
+
+      jest.spyOn(gateway.roundService, 'suggestHelp').mockResolvedValue({
+        roundId: 'r-sug-1',
+        fromUserId: 'u-suggest',
+        forUserId: 'u-ans',
+        optionIndex: 2,
+      });
+
+      await gateway.handleHelpSuggest(mockClient, {
+        roundId: 'r-sug-1',
+        forUserId: 'u-ans',
+        optionIndex: 2,
+      });
+
+      expect(mockServer.to).toHaveBeenCalledWith('user:u-ans');
+      expect(mockServer.emit).toHaveBeenCalledWith('power:help_suggest', {
+        roundId: 'r-sug-1',
+        fromUserId: 'u-suggest',
+        optionIndex: 2,
       });
     });
   });
