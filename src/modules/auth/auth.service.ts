@@ -249,8 +249,26 @@ export class AuthService {
     return { success: true, data: this.classPreview(resolved.row) };
   }
 
+  async checkUsername(rawUsername: string) {
+    const username = rawUsername.trim();
+    if (!USERNAME_PATTERN.test(username)) {
+      throw new HttpException(
+        'Username must be 3–24 letters, numbers, . or _',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const existing = await this.prisma.user.findFirst({ where: { username } });
+    return {
+      success: true,
+      data: { available: !existing },
+    };
+  }
+
   async registerStudent(dto: RegisterStudentDto) {
     this.assertPasswordsMatch(dto.password, dto.confirmPassword);
+    if (!Number.isInteger(dto.age) || dto.age < 4 || dto.age > 99) {
+      throw new HttpException('Age must be between 4 and 99', HttpStatus.BAD_REQUEST);
+    }
     const resolved = await this.resolveClassCode(dto.code);
     if (resolved.kind !== 'ok') {
       throw new HttpException(
@@ -260,6 +278,12 @@ export class AuthService {
     }
 
     const username = dto.username.trim();
+    if (!USERNAME_PATTERN.test(username)) {
+      throw new HttpException(
+        'Username must be 3–24 letters, numbers, . or _',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
     const existing = await this.prisma.user.findFirst({ where: { username } });
     if (existing) {
       throw new HttpException(
@@ -280,6 +304,8 @@ export class AuthService {
           password_hash,
           nickname: dto.nickname.trim(),
           real_name: dto.realName.trim(),
+          age: dto.age,
+          avatar_url: dto.avatarUrl?.trim() || null,
           role: Role.STUDENT,
           status: UserStatus.PENDING,
           school_id: resolved.row.class.school_id,
@@ -644,6 +670,8 @@ function hashesEqual(left: string, right: string) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+const USERNAME_PATTERN = /^[a-zA-Z0-9._]{3,24}$/;
+
 function toPublicUser(user: User) {
   return {
     id: user.id,
@@ -653,6 +681,7 @@ function toPublicUser(user: User) {
     name: user.real_name,
     username: user.username,
     nickname: user.nickname,
+    age: user.age,
     schoolId: user.school_id,
   };
 }

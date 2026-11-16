@@ -1,15 +1,31 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  MinLength,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class JoinCodeDto {
-  @ApiProperty({ example: 'WING-4320' })
+  @ApiProperty({ example: '864320' })
   @IsString()
   @MinLength(1)
   code: string;
 }
 
+export class CheckUsernameDto {
+  @ApiProperty({ example: 'wingkid' })
+  @IsString()
+  @MinLength(3)
+  username: string;
+}
+
 export class RegisterStudentDto {
-  @ApiProperty({ example: 'WING-4320' })
+  @ApiProperty({ example: '864320' })
   @IsString()
   @MinLength(1)
   code: string;
@@ -38,6 +54,19 @@ export class RegisterStudentDto {
   @IsString()
   @MinLength(1)
   realName: string;
+
+  @ApiProperty({ example: 9, minimum: 4, maximum: 99 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(4)
+  @Max(99)
+  age: number;
+
+  @ApiPropertyOptional({ example: 'assets/images/avatar_01.png' })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  avatarUrl?: string;
 }
 
 export class StudentLoginDto {

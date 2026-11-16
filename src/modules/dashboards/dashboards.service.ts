@@ -3,6 +3,7 @@ import {
   JoinRequestStatus,
   PointsSource,
   PublishStatus,
+  RenewalRequestStatus,
   ReportStatus,
   Role,
   UserStatus,
@@ -403,14 +404,47 @@ export class DashboardsService {
       },
     });
 
-    // 3. Published story count
-    const publishedStoryCount = await this.prisma.story.count({
-      where: {
-        school_id: schoolId,
-        status: PublishStatus.PUBLISHED,
-        deleted_at: null,
-      },
-    });
+    // 3. Story counts by publish status (API.md `stories`).
+    // Schema has DRAFT/PUBLISHED only; "archived" = soft-deleted stories.
+    const [publishedStoryCount, draftStoryCount, archivedStoryCount] =
+      await Promise.all([
+        this.prisma.story.count({
+          where: {
+            school_id: schoolId,
+            status: PublishStatus.PUBLISHED,
+            deleted_at: null,
+          },
+        }),
+        this.prisma.story.count({
+          where: {
+            school_id: schoolId,
+            status: PublishStatus.DRAFT,
+            deleted_at: null,
+          },
+        }),
+        this.prisma.story.count({
+          where: {
+            school_id: schoolId,
+            deleted_at: { not: null },
+          },
+        }),
+      ]);
+
+    const [pendingClassRequests, pendingCodeRenewals] = await Promise.all([
+      this.prisma.classCreationRequest.count({
+        where: {
+          school_id: schoolId,
+          status: RenewalRequestStatus.PENDING,
+        },
+      }),
+      this.prisma.classCodeRenewalRequest.count({
+        where: {
+          class: { school_id: schoolId },
+          status: RenewalRequestStatus.PENDING,
+        },
+      }),
+    ]);
+    const classRequestsPending = pendingClassRequests + pendingCodeRenewals;
 
     // 4. Open Safe Space count (NEW + REVIEWING)
     const [safeSpaceNew, safeSpaceReviewing] = await Promise.all([
@@ -522,11 +556,51 @@ export class DashboardsService {
 
     const greetingName =
       admin.real_name || admin.nickname || admin.username || 'Admin';
-    const attentionCount = openSafeSpaceCount + pendingStudents;
+    const attentionCount =
+      openSafeSpaceCount + pendingStudents + classRequestsPending;
+
+    const week = getMonFriWeek().map((bucket) => ({
+      day: bucket.day,
+      readingHours: 0,
+      listeningHours: 0,
+    }));
 
     return {
       success: true,
       data: {
+        greetingName,
+        attentionCount,
+        totalStudents,
+        totalTeachers,
+        totalClasses: classesCount,
+        pendingStudents,
+        week,
+        storyCompletionPercent: 0,
+        quizCompletionPercent: 0,
+        stories: {
+          published: publishedStoryCount,
+          drafts: draftStoryCount,
+          archived: archivedStoryCount,
+        },
+        attention: {
+          classRequests: classRequestsPending,
+          studentApprovals: pendingStudents,
+          safeSpaceNew,
+          safeSpaceFollowUp: safeSpaceReviewing,
+        },
+        topStudents: [],
+        students: {
+          total: totalStudents,
+          active: activeStudents,
+          pending: pendingStudents,
+          inactive: inactiveStudents,
+        },
+        activity: allActivity.map((row) => ({
+          actor: row.actor,
+          sentence: row.sentence,
+          at: row.at,
+        })),
+        // Legacy / transitional fields (kept for older clients)
         studentCountsByStatus: {
           active: activeStudents,
           pending: pendingStudents,
@@ -542,17 +616,8 @@ export class DashboardsService {
           inactive: inactiveStudents,
           total: totalStudents,
         },
-        totalStudents,
-        pendingStudents,
-        students: {
-          total: totalStudents,
-          active: activeStudents,
-          pending: pendingStudents,
-          inactive: inactiveStudents,
-        },
         staffCount,
         totalStaff: staffCount,
-        totalTeachers,
         publishedStoryCount,
         openSafeSpaceCount,
         openReportsCount: openSafeSpaceCount,
@@ -562,11 +627,7 @@ export class DashboardsService {
           open: openSafeSpaceCount,
         },
         classesCount,
-        totalClasses: classesCount,
-        activity: allActivity,
         recentActivity: allActivity,
-        greetingName,
-        attentionCount,
       },
     };
   }

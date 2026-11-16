@@ -228,7 +228,8 @@ export async function buildSeedPlan(env?: Partial<SeedEnv>): Promise<SeedPlan> {
       age_group: AgeGroup.AGE_6_9,
     },
     classCode: {
-      code: 'WING-4320',
+      // 6-digit join code — matches student app pinput / design circles.
+      code: '864320',
       status: ClassCodeStatus.ACTIVE,
     },
     students: {

@@ -1,6 +1,11 @@
 import { createHash, randomBytes } from 'crypto';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { Role, UserStatus } from 'prisma/generated/client';
+import {
+  ClassCodeStatus,
+  Prisma,
+  Role,
+  UserStatus,
+} from 'prisma/generated/client';
 import { paginateResponse } from '../../common/pagination/pagination.service';
 import { MailService } from '../../mail/mail.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -13,6 +18,26 @@ import {
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+type StaffClassRow = {
+  id: string;
+  name: string;
+  created_at: Date;
+  codes: { code: string }[];
+  _count: { memberships: number };
+};
+
+type StaffRow = {
+  id: string;
+  email: string | null;
+  username: string | null;
+  real_name: string | null;
+  role: Role;
+  status: UserStatus;
+  settings_json: unknown;
+  created_at: Date;
+  classes_teaching: StaffClassRow[];
+};
+
 @Injectable()
 export class StaffService {
   constructor(
@@ -24,11 +49,21 @@ export class StaffService {
     const schoolId = await this.adminSchool(adminId);
     const page = query.page ?? 1;
     const perPage = query.perPage ?? 10;
-    const where = {
+    const q = query.q?.trim();
+    const where: Prisma.UserWhereInput = {
       deleted_at: null,
       school_id: schoolId,
       role: { in: [Role.TEACHER, Role.ADMIN] },
       ...(query.status ? { status: query.status } : {}),
+      ...(q
+        ? {
+            OR: [
+              { real_name: { contains: q, mode: 'insensitive' } },
+              { username: { contains: q, mode: 'insensitive' } },
+              { email: { contains: q, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
     };
     const [total, rows] = await Promise.all([
       this.prisma.user.count({ where }),
@@ -37,15 +72,13 @@ export class StaffService {
         skip: (page - 1) * perPage,
         take: perPage,
         orderBy: [{ real_name: 'asc' }, { email: 'asc' }],
-        include: {
-          classes_teaching: { select: { id: true, name: true } },
-        },
+        include: this.staffInclude(),
       }),
     ]);
     return {
       success: true,
       data: paginateResponse(
-        rows.map((row) => this.toStaff(row)),
+        rows.map((row) => this.toStaff(row as unknown as StaffRow)),
         total,
         page,
         perPage,
@@ -117,15 +150,66 @@ export class StaffService {
 
   async update(adminId: string, staffId: string, dto: UpdateStaffDto) {
     const schoolId = await this.adminSchool(adminId);
-    await this.staffInSchool(staffId, schoolId);
-    const updated = await this.prisma.user.update({
+    const staff = await this.staffInSchool(staffId, schoolId);
+
+    const nextEmail = dto.email?.trim().toLowerCase();
+    if (nextEmail && nextEmail !== (staff.email ?? '').toLowerCase()) {
+      const taken = await this.prisma.user.findFirst({
+        where: { email: nextEmail, deleted_at: null, NOT: { id: staffId } },
+      });
+      if (taken) {
+        throw new HttpException('Email is already in use', HttpStatus.CONFLICT);
+      }
+    }
+
+    const prevSettings =
+      staff.settings_json &&
+      typeof staff.settings_json === 'object' &&
+      !Array.isArray(staff.settings_json)
+        ? (staff.settings_json as Record<string, Prisma.InputJsonValue>)
+        : {};
+    const settings: Prisma.InputJsonObject = {
+      ...prevSettings,
+      ...(dto.canAccessSafeSpace !== undefined
+        ? { canAccessSafeSpace: dto.canAccessSafeSpace }
+        : {}),
+    };
+
+    await this.prisma.user.update({
       where: { id: staffId },
-      data: { real_name: dto.realName.trim() },
+      data: {
+        real_name: dto.name.trim(),
+        ...(nextEmail ? { email: nextEmail } : {}),
+        settings_json: settings,
+      },
     });
+
+    if (dto.assignedClass?.trim()) {
+      const label = dto.assignedClass.trim();
+      const target = await this.prisma.class.findFirst({
+        where: {
+          school_id: schoolId,
+          deleted_at: null,
+          OR: [{ id: label }, { name: label }],
+        },
+      });
+      if (target) {
+        await this.prisma.class.updateMany({
+          where: { teacher_id: staffId, NOT: { id: target.id } },
+          data: { teacher_id: null },
+        });
+        await this.prisma.class.update({
+          where: { id: target.id },
+          data: { teacher_id: staffId },
+        });
+      }
+    }
+
+    const refreshed = await this.staffInSchool(staffId, schoolId);
     return {
       success: true,
       message: 'Staff updated',
-      data: { id: updated.id, realName: updated.real_name },
+      data: this.toStaff(refreshed),
     };
   }
 
@@ -136,7 +220,7 @@ export class StaffService {
       throw new HttpException('Staff is already active', HttpStatus.CONFLICT);
     }
     if (staff.status !== UserStatus.INACTIVE) {
-      throw new HttpException('Staff is not inactive', HttpStatus.CONFLICT);
+      throw new HttpException('Staff is not inactive', HttpStatus.UNPROCESSABLE_ENTITY);
     }
     const updated = await this.prisma.user.update({
       where: { id: staff.id },
@@ -149,33 +233,118 @@ export class StaffService {
     };
   }
 
-  private toStaff(row: {
-    id: string;
-    email: string | null;
-    real_name: string | null;
-    role: Role;
-    status: UserStatus;
-    settings_json: unknown;
-    classes_teaching?: { id: string; name: string }[];
-  }) {
+  async remind(adminId: string, staffId: string) {
+    const schoolId = await this.adminSchool(adminId);
+    const staff = await this.staffInSchool(staffId, schoolId);
+    if (!staff.email) {
+      throw new HttpException('Staff has no email', HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+    const pending = await this.prisma.staffInvite.findFirst({
+      where: {
+        email: staff.email.toLowerCase(),
+        accepted_at: null,
+        expires_at: { gt: new Date() },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+    if (!pending) {
+      throw new HttpException('No pending invite to remind', HttpStatus.NOT_FOUND);
+    }
+
+    const token = randomBytes(32).toString('hex');
+    await this.prisma.staffInvite.update({
+      where: { id: pending.id },
+      data: {
+        token_hash: createHash('sha256').update(token).digest('hex'),
+        expires_at: new Date(Date.now() + INVITE_TTL_MS),
+      },
+    });
+
+    const admin = await this.adminUser(adminId);
+    const url = `${appConfig().app.client_app_url ?? ''}/accept-invite?token=${encodeURIComponent(token)}`;
+    await this.mailService.sendMemberInvitation({
+      user: {
+        fname: admin.real_name || admin.email || 'Admin',
+        lname: '',
+        email: admin.email,
+      },
+      member: {
+        fname: staff.real_name || staff.email,
+        email: staff.email,
+        token,
+      },
+      url,
+    });
+
+    return {
+      success: true,
+      message: 'Reminder sent',
+      data: {
+        id: pending.id,
+        ...(process.env.NODE_ENV === 'production' ? {} : { devToken: token }),
+      },
+    };
+  }
+
+  private toStaff(row: StaffRow) {
     const settings =
       row.settings_json &&
       typeof row.settings_json === 'object' &&
       !Array.isArray(row.settings_json)
         ? (row.settings_json as { canAccessSafeSpace?: boolean })
         : {};
+    const classes = (row.classes_teaching ?? []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      code: item.codes[0]?.code ?? '',
+      assignedOn: item.created_at.toISOString(),
+      studentCount: item._count.memberships,
+    }));
+    const name =
+      row.real_name?.trim() ||
+      row.username?.trim() ||
+      row.email?.split('@')[0] ||
+      'Staff';
+    const handle =
+      row.username?.trim() ||
+      row.email?.split('@')[0] ||
+      row.id.slice(0, 8);
     return {
       id: row.id,
-      email: row.email,
-      realName: row.real_name,
+      name,
+      handle,
+      email: row.email ?? '',
+      phone: '',
+      staffCode: row.username?.trim() || row.id.slice(0, 8).toUpperCase(),
       role: row.role,
-      status: row.status,
       canAccessSafeSpace: settings.canAccessSafeSpace === true,
-      classes: (row.classes_teaching ?? []).map((item) => ({
-        id: item.id,
-        name: item.name,
-      })),
+      assignedClass: classes.map((c) => c.name).join(', '),
+      studentCount: classes.reduce((sum, c) => sum + c.studentCount, 0),
+      status: row.status,
+      joinedAt: row.created_at.toISOString(),
+      classes,
     };
+  }
+
+  private staffInclude() {
+    return {
+      classes_teaching: {
+        where: { deleted_at: null },
+        select: {
+          id: true,
+          name: true,
+          created_at: true,
+          codes: {
+            where: { status: ClassCodeStatus.ACTIVE },
+            select: { code: true },
+            take: 1,
+            orderBy: { created_at: 'desc' as const },
+          },
+          _count: { select: { memberships: true } },
+        },
+        orderBy: { name: 'asc' as const },
+      },
+    } satisfies Prisma.UserInclude;
   }
 
   private async adminSchool(userId: string) {
@@ -205,13 +374,11 @@ export class StaffService {
         role: { in: [Role.TEACHER, Role.ADMIN] },
         deleted_at: null,
       },
-      include: {
-        classes_teaching: { select: { id: true, name: true } },
-      },
+      include: this.staffInclude(),
     });
     if (!staff) {
       throw new HttpException('Staff not found', HttpStatus.NOT_FOUND);
     }
-    return staff;
+    return staff as unknown as StaffRow;
   }
 }

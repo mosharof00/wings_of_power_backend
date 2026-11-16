@@ -62,4 +62,10 @@ export class AdminStaffController {
   reactivate(@GetUser('userId') userId: string, @Param('id') id: string) {
     return this.staffService.reactivate(userId, id);
   }
+
+  @ApiOperation({ summary: 'Resend a pending staff invite' })
+  @Post('staff/:id/remind')
+  remind(@GetUser('userId') userId: string, @Param('id') id: string) {
+    return this.staffService.remind(userId, id);
+  }
 }

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { GetUser } from './decorators/get-user.decorator';
 import {
@@ -12,6 +20,7 @@ import {
 } from './dto/staff-auth.dto';
 import { AcceptInviteDto } from './dto/accept-invite.dto';
 import {
+  CheckUsernameDto,
   JoinCodeDto,
   RegisterStudentDto,
   SelectHeroDto,
@@ -83,6 +92,12 @@ export class AuthController {
   @Post('student/join-code')
   joinCode(@Body() dto: JoinCodeDto) {
     return this.authService.joinCode(dto);
+  }
+
+  @ApiOperation({ summary: 'Check whether a student username is available' })
+  @Get('student/check-username')
+  checkUsername(@Query() dto: CheckUsernameDto) {
+    return this.authService.checkUsername(dto.username);
   }
 
   @ApiOperation({ summary: 'Register a student into a pending class' })

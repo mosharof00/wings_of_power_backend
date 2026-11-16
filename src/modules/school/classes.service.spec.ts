@@ -213,7 +213,7 @@ describe('ClassesService', () => {
     });
 
     const created = prisma.classCode.create.mock.calls[0][0].data;
-    expect(created.code).toMatch(/^WING-\d{4}$/);
+    expect(created.code).toMatch(/^\d{6}$/);
     expect(created.status).toBe(ClassCodeStatus.ACTIVE);
     expect(result.data.code).toBe(created.code);
   });

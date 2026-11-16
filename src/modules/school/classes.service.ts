@@ -534,7 +534,8 @@ export class ClassesService {
 
   private async createActiveCode(classId: string, createdById: string) {
     for (let attempt = 0; attempt < 8; attempt++) {
-      const code = `WING-${randomInt(0, 10000).toString().padStart(4, '0')}`;
+      // 6-digit numeric codes (student app + design use 6 circular digits).
+      const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
       try {
         return await this.prisma.classCode.create({
           data: {

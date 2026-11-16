@@ -23,6 +23,7 @@ type StudentRow = {
   username: string | null;
   nickname: string | null;
   real_name: string | null;
+  age: number | null;
   avatar_url: string | null;
   school_id: string | null;
   memberships: MembershipRow[];
@@ -187,6 +188,9 @@ export class StudentsService {
         username: student.username,
         nickname: student.nickname,
         realName: student.real_name,
+        age: student.age,
+        ageLabel:
+          student.age != null ? `${student.age} years` : null,
         status: student.status,
         avatarUrl: student.avatar_url,
         role: student.role,

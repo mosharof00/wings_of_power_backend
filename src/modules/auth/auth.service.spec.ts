@@ -287,7 +287,7 @@ describe('AuthService', () => {
 
   const activeClassCode = {
     id: 'code-1',
-    code: 'WING-4320',
+    code: '864320',
     status: 'ACTIVE',
     expires_at: null,
     class: {
@@ -299,12 +299,13 @@ describe('AuthService', () => {
   };
 
   const studentRegister = {
-    code: 'WING-4320',
+    code: '864320',
     username: 'wingkid',
     password: 'password1',
     confirmPassword: 'password1',
     nickname: 'Wing',
     realName: 'Wing Kid',
+    age: 9,
   };
 
   it('returns 404 WRONG_CODE when the class code is unknown', async () => {
@@ -326,7 +327,7 @@ describe('AuthService', () => {
     });
 
     try {
-      await service.joinCode({ code: 'WING-4320' });
+      await service.joinCode({ code: '864320' });
       throw new Error('expected expired');
     } catch (error) {
       expectStatus(error, 422);
@@ -337,7 +338,7 @@ describe('AuthService', () => {
   it('returns the class name for an active code', async () => {
     prisma.classCode.findFirst.mockResolvedValue(activeClassCode);
 
-    const result = await service.joinCode({ code: 'WING-4320' });
+    const result = await service.joinCode({ code: '864320' });
 
     expect(result.data).toEqual({
       className: 'Grade 4 · Amber',

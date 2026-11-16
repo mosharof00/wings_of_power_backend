@@ -13,6 +13,11 @@ import { UserStatus } from 'prisma/generated/client';
 import { PaginationDto } from '../../../common/pagination/dto/offset-pagination.dto';
 
 export class StaffListQueryDto extends PaginationDto {
+  @ApiPropertyOptional({ description: 'Match name, handle, or email' })
+  @IsOptional()
+  @IsString()
+  q?: string;
+
   @ApiPropertyOptional({ enum: UserStatus })
   @IsOptional()
   @IsEnum(UserStatus)
@@ -33,7 +38,24 @@ export class UpdateStaffDto {
   @ApiProperty({ example: 'Jonah Levy' })
   @IsString()
   @MinLength(1)
-  realName: string;
+  name: string;
+
+  @ApiPropertyOptional({ example: 'teacher@school.edu' })
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  canAccessSafeSpace?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Class id or class name to assign as teacher',
+  })
+  @IsOptional()
+  @IsString()
+  assignedClass?: string;
 }
 
 export class UpdateTeacherProfileDto {

@@ -162,7 +162,7 @@ describe('SeedCommand and buildSeedPlan', () => {
           create: jest.fn().mockResolvedValue({ id: 'class-1', name: 'Grade 4 · Amber' }),
         },
         classCode: {
-          create: jest.fn().mockResolvedValue({ id: 'code-1', code: 'WING-4320' }),
+          create: jest.fn().mockResolvedValue({ id: 'code-1', code: '864320' }),
         },
         classMembership: {
           create: jest.fn().mockResolvedValue({ id: 'membership-1' }),
@@ -240,7 +240,7 @@ describe('SeedCommand and buildSeedPlan', () => {
       expect(result.schoolId).toBe('school-1');
       expect(result.adminEmail).toBe('fresh-admin@demo.school');
       expect(result.teacherEmail).toBe('fresh-teacher@demo.school');
-      expect(result.classCode).toBe('WING-4320');
+      expect(result.classCode).toBe('864320');
 
       // School created
       expect(mockPrisma.school.create).toHaveBeenCalledWith({
@@ -277,7 +277,7 @@ describe('SeedCommand and buildSeedPlan', () => {
       });
       expect(mockPrisma.classCode.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
-          code: 'WING-4320',
+          code: '864320',
           status: ClassCodeStatus.ACTIVE,
         }),
       });

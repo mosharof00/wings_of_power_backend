@@ -178,6 +178,7 @@ model User {
   password_hash     String?
   nickname          String?
   real_name         String?
+  age               Int?
   avatar_url        String?
   selected_hero_id  String?
   school_id         String?
