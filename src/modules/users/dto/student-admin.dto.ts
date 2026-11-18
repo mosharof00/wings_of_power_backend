@@ -1,5 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsEnum,
+  IsIn,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
 import { UserStatus } from 'prisma/generated/client';
 import { PaginationDto } from '../../../common/pagination/dto/offset-pagination.dto';
 
@@ -28,4 +34,15 @@ export class MoveClassDto {
   @IsString()
   @MinLength(1)
   classId: string;
+}
+
+export class ResetStudentPasswordDto {
+  @ApiPropertyOptional({
+    example: 'TempPass1!',
+    description: 'Optional. Server generates one when omitted.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  temporaryPassword?: string;
 }

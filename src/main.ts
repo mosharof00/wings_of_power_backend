@@ -19,9 +19,13 @@ async function bootstrap() {
   app.useWebSocketAdapter(new IoAdapter(app));
   app.setGlobalPrefix('api');
   app.enableCors();
+  // Media URLs are loaded by the dashboard (and later the app) from another
+  // origin (e.g. :3000 → :6001). Helmet's default CORP "same-origin" blocks
+  // those <img>/<audio> requests and shows a broken preview.
   app.use(
     helmet({
       contentSecurityPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
     }),
   );
 
@@ -50,9 +54,10 @@ async function bootstrap() {
     new PrismaExceptionFilter(),
   );
 
-  // storage setup
+  // storage setup — FILESYSTEM_DISK=local|s3 (default local for dev/hosting without cloud)
+  const disk = (process.env.FILESYSTEM_DISK || 'local').toLowerCase();
   TajulStorage.config({
-    driver: 'local',
+    driver: disk === 's3' ? 's3' : 'local',
     connection: {
       rootUrl: appConfig().storageUrl.rootUrl,
       publicUrl: appConfig().storageUrl.rootUrlPublic,
@@ -61,7 +66,8 @@ async function bootstrap() {
       awsSecretAccessKey: appConfig().fileSystems.s3.secret,
       awsDefaultRegion: appConfig().fileSystems.s3.region,
       awsEndpoint: appConfig().fileSystems.s3.endpoint,
-      minio: true,
+      // Path-style only when explicitly needed (MinIO / some S3-compatible hosts).
+      minio: process.env.AWS_FORCE_PATH_STYLE === 'true',
     },
   });
 

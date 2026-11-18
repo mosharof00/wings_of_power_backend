@@ -1,5 +1,6 @@
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import {
   ClassCodeStatus,
   Prisma,
@@ -15,8 +16,6 @@ import {
   StaffListQueryDto,
   UpdateStaffDto,
 } from './dto/staff-profile.dto';
-
-const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 type StaffClassRow = {
   id: string;
@@ -94,57 +93,88 @@ export class StaffService {
 
   async invite(adminId: string, dto: InviteStaffDto) {
     const admin = await this.adminUser(adminId);
+    const schoolId = admin.school_id as string;
     const email = dto.email.trim().toLowerCase();
+    const name = dto.name.trim();
+    const temporaryPassword = dto.temporaryPassword;
+    if (temporaryPassword.length < 8) {
+      throw new HttpException(
+        'Temporary password must be at least 8 characters',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     const existingUser = await this.prisma.user.findFirst({
       where: { email, deleted_at: null },
     });
     if (existingUser) {
       throw new HttpException('Email is already in use', HttpStatus.CONFLICT);
     }
-    const pending = await this.prisma.staffInvite.findFirst({
-      where: {
-        email,
-        accepted_at: null,
-        expires_at: { gt: new Date() },
-      },
-    });
-    if (pending) {
-      throw new HttpException('Invite already sent', HttpStatus.CONFLICT);
+
+    let className: string | null = null;
+    let classId: string | null = null;
+    if (dto.assignedClass?.trim()) {
+      const target = await this.prisma.class.findFirst({
+        where: {
+          id: dto.assignedClass.trim(),
+          school_id: schoolId,
+          deleted_at: null,
+        },
+      });
+      if (!target) {
+        throw new HttpException('Class not found', HttpStatus.NOT_FOUND);
+      }
+      classId = target.id;
+      className = target.name;
     }
 
-    const token = randomBytes(32).toString('hex');
-    const created = await this.prisma.staffInvite.create({
+    const password_hash = await bcrypt.hash(
+      temporaryPassword,
+      appConfig().security.salt,
+    );
+
+    const created = await this.prisma.user.create({
       data: {
         email,
-        invited_by_id: admin.id,
-        can_access_safe_space: dto.canAccessSafeSpace,
-        token_hash: createHash('sha256').update(token).digest('hex'),
-        expires_at: new Date(Date.now() + INVITE_TTL_MS),
+        real_name: name,
+        password_hash,
+        role: Role.TEACHER,
+        status: UserStatus.INVITED,
+        school_id: schoolId,
+        email_verified_at: new Date(),
+        settings_json: { canAccessSafeSpace: dto.canAccessSafeSpace === true },
       },
     });
 
-    const url = `${appConfig().app.client_app_url ?? ''}/accept-invite?token=${encodeURIComponent(token)}`;
-    await this.mailService.sendMemberInvitation({
-      user: {
-        fname: admin.real_name || admin.email || 'Admin',
-        lname: '',
-        email: admin.email,
-      },
-      member: {
-        fname: email,
-        email,
-        token,
-      },
-      url,
+    if (classId) {
+      await this.prisma.class.update({
+        where: { id: classId },
+        data: { teacher_id: created.id },
+      });
+    }
+
+    // Close any leftover token-only invites for this email (old flow).
+    await this.prisma.staffInvite.updateMany({
+      where: { email, accepted_at: null },
+      data: { accepted_at: new Date() },
     });
 
+    const signInUrl = `${appConfig().app.client_app_url ?? ''}/sign-in`;
+    await this.mailService.sendStaffInviteCredentials({
+      to: email,
+      name,
+      email,
+      temporaryPassword,
+      className,
+      invitedBy: admin.real_name || admin.email || 'Admin',
+      signInUrl,
+    });
+
+    const staff = await this.staffInSchool(created.id, schoolId);
     return {
       success: true,
       message: 'Invite sent',
-      data: {
-        id: created.id,
-        ...(process.env.NODE_ENV === 'production' ? {} : { devToken: token }),
-      },
+      data: this.toStaff(staff),
     };
   }
 
@@ -237,52 +267,40 @@ export class StaffService {
     const schoolId = await this.adminSchool(adminId);
     const staff = await this.staffInSchool(staffId, schoolId);
     if (!staff.email) {
-      throw new HttpException('Staff has no email', HttpStatus.UNPROCESSABLE_ENTITY);
-    }
-    const pending = await this.prisma.staffInvite.findFirst({
-      where: {
-        email: staff.email.toLowerCase(),
-        accepted_at: null,
-        expires_at: { gt: new Date() },
-      },
-      orderBy: { created_at: 'desc' },
-    });
-    if (!pending) {
-      throw new HttpException('No pending invite to remind', HttpStatus.NOT_FOUND);
+      throw new HttpException(
+        'Staff has no email',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
     }
 
-    const token = randomBytes(32).toString('hex');
-    await this.prisma.staffInvite.update({
-      where: { id: pending.id },
-      data: {
-        token_hash: createHash('sha256').update(token).digest('hex'),
-        expires_at: new Date(Date.now() + INVITE_TTL_MS),
-      },
+    const temporaryPassword = randomBytes(9).toString('base64url').slice(0, 12);
+    const password_hash = await bcrypt.hash(
+      temporaryPassword,
+      appConfig().security.salt,
+    );
+    await this.prisma.user.update({
+      where: { id: staff.id },
+      data: { password_hash },
     });
 
     const admin = await this.adminUser(adminId);
-    const url = `${appConfig().app.client_app_url ?? ''}/accept-invite?token=${encodeURIComponent(token)}`;
-    await this.mailService.sendMemberInvitation({
-      user: {
-        fname: admin.real_name || admin.email || 'Admin',
-        lname: '',
-        email: admin.email,
-      },
-      member: {
-        fname: staff.real_name || staff.email,
-        email: staff.email,
-        token,
-      },
-      url,
+    const className =
+      staff.classes_teaching.map((c) => c.name).join(', ') || null;
+    const signInUrl = `${appConfig().app.client_app_url ?? ''}/sign-in`;
+    await this.mailService.sendStaffInviteCredentials({
+      to: staff.email,
+      name: staff.real_name || staff.email,
+      email: staff.email,
+      temporaryPassword,
+      className,
+      invitedBy: admin.real_name || admin.email || 'Admin',
+      signInUrl,
     });
 
     return {
       success: true,
       message: 'Reminder sent',
-      data: {
-        id: pending.id,
-        ...(process.env.NODE_ENV === 'production' ? {} : { devToken: token }),
-      },
+      data: { id: staff.id },
     };
   }
 

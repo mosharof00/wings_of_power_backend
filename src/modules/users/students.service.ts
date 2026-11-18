@@ -1,9 +1,13 @@
+import { randomBytes } from 'crypto';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { JoinRequestStatus, Role, UserStatus } from 'prisma/generated/client';
 import { paginateResponse } from '../../common/pagination/pagination.service';
+import appConfig from '../../config/app.config';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   MoveClassDto,
+  ResetStudentPasswordDto,
   StudentListQueryDto,
   TeacherStudentListQueryDto,
   UpdateStudentStatusDto,
@@ -90,6 +94,37 @@ export class StudentsService {
       success: true,
       message: 'Student approved',
       data: { id: updated.id, status: updated.status },
+    };
+  }
+
+  async resetPassword(
+    adminId: string,
+    studentId: string,
+    dto: ResetStudentPasswordDto,
+  ) {
+    const schoolId = await this.adminSchool(adminId);
+    await this.studentInSchool(studentId, schoolId);
+    const temporaryPassword =
+      dto.temporaryPassword?.trim() ||
+      randomBytes(9).toString('base64url').slice(0, 10);
+    if (temporaryPassword.length < 8) {
+      throw new HttpException(
+        'Temporary password must be at least 8 characters',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const password_hash = await bcrypt.hash(
+      temporaryPassword,
+      appConfig().security.salt,
+    );
+    const updated = await this.prisma.user.update({
+      where: { id: studentId },
+      data: { password_hash },
+    });
+    return {
+      success: true,
+      message: 'Temporary password set — share it with the student',
+      data: { id: updated.id, temporaryPassword },
     };
   }
 

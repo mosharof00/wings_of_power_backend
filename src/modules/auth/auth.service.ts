@@ -41,6 +41,8 @@ import {
 } from './dto/student-auth.dto';
 
 const CODE_TTL_MS = 15 * 60 * 1000;
+/** Staff forgot-password OTP lifetime (owner: 1 minute). */
+const RESET_CODE_TTL_MS = 60 * 1000;
 
 @Injectable()
 export class AuthService {
@@ -159,12 +161,14 @@ export class AuthService {
         name: user.real_name,
         email,
         otp: code,
+        subject: 'Password reset code',
       });
     }
 
     return {
       success: true,
       message: 'If that account exists, a reset code is on its way',
+      data: { expiresInSeconds: 60 },
     };
   }
 
@@ -543,15 +547,20 @@ export class AuthService {
 
   private async login(dto: StaffLoginDto, roles: Role[]) {
     const user = await this.assertCanLogin(dto.email, dto.password, roles);
-    await this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: user.id },
-      data: { last_login_at: new Date() },
+      data: {
+        last_login_at: new Date(),
+        ...(user.status === UserStatus.INVITED
+          ? { status: UserStatus.ACTIVE }
+          : {}),
+      },
     });
     return {
       success: true,
       data: {
-        accessToken: await this.signToken(user),
-        user: toPublicUser(user),
+        accessToken: await this.signToken(updated),
+        user: toPublicUser(updated),
       },
     };
   }
@@ -607,8 +616,12 @@ export class AuthService {
       );
     }
     const matches = await bcrypt.compare(password, user.password_hash);
-    const allowed =
-      matches && roles.includes(user.role) && user.status === UserStatus.ACTIVE;
+    const statusOk =
+      user.status === UserStatus.ACTIVE ||
+      (roles.includes(Role.TEACHER) || roles.includes(Role.ADMIN)
+        ? user.status === UserStatus.INVITED
+        : false);
+    const allowed = matches && roles.includes(user.role) && statusOk;
     if (!allowed) {
       throw new HttpException(
         'Invalid email or password',
@@ -620,12 +633,16 @@ export class AuthService {
 
   private async issueCode(email: string, purpose: AuthCodePurpose) {
     const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
+    const ttl =
+      purpose === AuthCodePurpose.RESET_PASSWORD
+        ? RESET_CODE_TTL_MS
+        : CODE_TTL_MS;
     await this.prisma.authCode.create({
       data: {
         email,
         purpose,
         code_hash: hashCode(code),
-        expires_at: new Date(Date.now() + CODE_TTL_MS),
+        expires_at: new Date(Date.now() + ttl),
       },
     });
     return code;

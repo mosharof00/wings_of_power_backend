@@ -36,6 +36,16 @@ export class MailProcessor extends WorkerHost {
             context: job.data.context,
           });
           break;
+        case 'sendStaffInviteCredentials':
+          this.logger.log('Sending staff invite credentials email');
+          await this.mailerService.sendMail({
+            to: job.data.to,
+            from: job.data.from,
+            subject: job.data.subject,
+            template: job.data.template,
+            context: job.data.context,
+          });
+          break;
         case 'sendOtpCodeToEmail':
           this.logger.log('Sending OTP code to email');
           await this.mailerService.sendMail({

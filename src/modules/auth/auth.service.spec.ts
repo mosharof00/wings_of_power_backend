@@ -589,11 +589,12 @@ describe('AuthService', () => {
       const codeData = prisma.authCode.create.mock.calls[0][0].data;
       expect(codeData.email).toBe('wingkid@school.demo');
       expect(codeData.purpose).toBe(AuthCodePurpose.RESET_PASSWORD);
+      // Staff/student reset OTP TTL is 60s (D55).
       expect(codeData.expires_at.getTime()).toBeGreaterThan(
-        Date.now() + 14 * 60 * 1000,
+        Date.now() + 45 * 1000,
       );
       expect(codeData.expires_at.getTime()).toBeLessThan(
-        Date.now() + 16 * 60 * 1000,
+        Date.now() + 75 * 1000,
       );
       expect(mail.sendOtpCodeToEmail).toHaveBeenCalledWith(
         expect.objectContaining({

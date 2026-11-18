@@ -25,13 +25,31 @@ export class StaffListQueryDto extends PaginationDto {
 }
 
 export class InviteStaffDto {
+  @ApiProperty({ example: 'Jonah Levy' })
+  @IsString()
+  @MinLength(1)
+  name: string;
+
   @ApiProperty({ example: 'teacher@school.edu' })
   @IsEmail()
   email: string;
 
+  @ApiProperty({ example: 'TempPass1!', minLength: 8 })
+  @IsString()
+  @MinLength(8)
+  temporaryPassword: string;
+
   @ApiProperty({ example: false })
   @IsBoolean()
   canAccessSafeSpace: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Optional class id to assign as teacher',
+    example: 'class-id',
+  })
+  @IsOptional()
+  @IsString()
+  assignedClass?: string;
 }
 
 export class UpdateStaffDto {

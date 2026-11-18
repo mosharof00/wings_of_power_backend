@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>You're invited to Wings of Power</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#2C254B;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(44,37,75,0.08);">
+            <tr>
+              <td style="background:linear-gradient(180deg,#EE8940 0%,#C87234 100%);padding:28px 32px;color:#ffffff;">
+                <div style="font-size:13px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.9;">Wings of Power</div>
+                <div style="font-size:24px;font-weight:700;margin-top:8px;">You're invited to join the team</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px 32px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.5;">
+                  Hi <strong><%= name %></strong>,
+                </p>
+                <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#5C5F69;">
+                  <strong><%= invitedBy %></strong> invited you to Wings of Power as school staff.
+                  Use the details below to sign in, then change your password after your first login.
+                </p>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#FFF6DE;border-radius:12px;margin:0 0 24px;">
+                  <tr>
+                    <td style="padding:18px 20px;">
+                      <div style="font-size:12px;color:#8A8C92;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;">Your account</div>
+                      <p style="margin:0 0 8px;font-size:14px;"><strong>Name:</strong> <%= name %></p>
+                      <p style="margin:0 0 8px;font-size:14px;"><strong>Email:</strong> <%= email %></p>
+                      <p style="margin:0 0 8px;font-size:14px;"><strong>Temporary password:</strong> <span style="font-family:Consolas,Monaco,monospace;background:#fff;padding:2px 6px;border-radius:4px;"><%= temporaryPassword %></span></p>
+                      <p style="margin:0;font-size:14px;"><strong>Assigned class:</strong> <%= className || 'Not assigned yet' %></p>
+                    </td>
+                  </tr>
+                </table>
+
+                <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 24px;">
+                  <tr>
+                    <td align="center" bgcolor="#EE8940" style="border-radius:999px;">
+                      <a href="<%= signInUrl %>" style="display:inline-block;padding:14px 28px;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;">
+                        Sign In
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0;font-size:13px;line-height:1.5;color:#8A8C92;">
+                  If the button does not work, open this link:<br />
+                  <a href="<%= signInUrl %>" style="color:#EE8940;word-break:break-all;"><%= signInUrl %></a>
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 32px 28px;border-top:1px solid #F1F2F2;font-size:12px;color:#8A8C92;">
+                Faith &amp; Gabriel Against Bullying · Wings of Power
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

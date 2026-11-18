@@ -2,7 +2,11 @@
 /dist
 /node_modules
 /build
-/public/storage
+# Uploaded media (keep folder skeleton via .gitkeep)
+/public/storage/**
+!/public/storage/
+!/public/storage/**/
+!/public/storage/**/.gitkeep
 
 # Logs
 logs

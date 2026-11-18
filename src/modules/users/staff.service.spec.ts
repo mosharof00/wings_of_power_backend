@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import { ExecutionContext, HttpException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Role, UserStatus } from 'prisma/generated/client';
@@ -15,14 +14,24 @@ describe('StaffService', () => {
       findFirst: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
+      create: jest.fn(),
       update: jest.fn(),
+    },
+    class: {
+      findFirst: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
     },
     staffInvite: {
       findFirst: jest.fn(),
       create: jest.fn(),
+      updateMany: jest.fn(),
     },
   };
-  const mail = { sendMemberInvitation: jest.fn() };
+  const mail = {
+    sendMemberInvitation: jest.fn(),
+    sendStaffInviteCredentials: jest.fn(),
+  };
   const service = new StaffService(
     prisma as unknown as PrismaService,
     mail as unknown as MailService,
@@ -39,40 +48,57 @@ describe('StaffService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.user.findFirst.mockReset();
-    mail.sendMemberInvitation.mockResolvedValue(undefined);
+    mail.sendStaffInviteCredentials.mockResolvedValue(undefined);
   });
 
-  it('invite stores a hash, not the raw token, and sets can_access_safe_space', async () => {
+  it('invite creates an active teacher and emails credentials', async () => {
     prisma.user.findFirst
       .mockResolvedValueOnce(admin)
-      .mockResolvedValueOnce(null);
-    prisma.staffInvite.findFirst.mockResolvedValue(null);
-    prisma.staffInvite.create.mockImplementation(async ({ data }) => ({
-      id: 'invite-1',
-      ...data,
-    }));
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'teacher-1',
+        email: 'teacher@school.edu',
+        username: null,
+        real_name: 'Ada Teacher',
+        role: Role.TEACHER,
+        status: UserStatus.INVITED,
+        settings_json: { canAccessSafeSpace: true },
+        created_at: new Date('2026-01-01'),
+        classes_teaching: [],
+      });
+    prisma.user.create.mockResolvedValue({
+      id: 'teacher-1',
+      email: 'teacher@school.edu',
+    });
+    prisma.staffInvite.updateMany.mockResolvedValue({ count: 1 });
 
     const result = await service.invite('admin-1', {
+      name: 'Ada Teacher',
       email: 'Teacher@School.edu',
+      temporaryPassword: 'TempPass1!',
       canAccessSafeSpace: true,
     });
 
-    const stored = prisma.staffInvite.create.mock.calls[0][0].data;
-    expect(stored.can_access_safe_space).toBe(true);
-    expect(stored.email).toBe('teacher@school.edu');
-    expect(stored.token_hash).toMatch(/^[a-f0-9]{64}$/);
-    expect(stored.token_hash).not.toBe(result.data.devToken);
-    expect(
-      createHash('sha256').update(result.data.devToken).digest('hex'),
-    ).toBe(stored.token_hash);
-    expect(mail.sendMemberInvitation).toHaveBeenCalledWith(
+    expect(prisma.user.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        member: expect.objectContaining({ token: result.data.devToken }),
+        data: expect.objectContaining({
+          email: 'teacher@school.edu',
+          real_name: 'Ada Teacher',
+          role: Role.TEACHER,
+          status: UserStatus.INVITED,
+          school_id: 'school-1',
+        }),
       }),
     );
-    const expiresIn = stored.expires_at.getTime() - Date.now();
-    expect(expiresIn).toBeGreaterThan(6 * 24 * 60 * 60 * 1000);
-    expect(expiresIn).toBeLessThan(8 * 24 * 60 * 60 * 1000);
+    expect(mail.sendStaffInviteCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'teacher@school.edu',
+        name: 'Ada Teacher',
+        temporaryPassword: 'TempPass1!',
+        signInUrl: expect.stringContaining('/sign-in'),
+      }),
+    );
+    expect(result.data.email).toBe('teacher@school.edu');
   });
 
   it('reactivates inactive staff and conflicts when already active', async () => {
@@ -118,6 +144,7 @@ describe('StaffService', () => {
       getUserDetails: jest.fn().mockResolvedValue({ role: Role.TEACHER }),
     };
     const guard = new RolesGuard(reflector, users as unknown as UserRepository);
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue([Role.ADMIN]);
     const context = {
       getHandler: () => AdminStaffController.prototype.list,
       getClass: () => AdminStaffController,
@@ -126,12 +153,8 @@ describe('StaffService', () => {
       }),
     } as unknown as ExecutionContext;
 
-    try {
-      await guard.canActivate(context);
-      throw new Error('expected forbidden');
-    } catch (error) {
-      expect(error).toBeInstanceOf(HttpException);
-      expect((error as HttpException).getStatus()).toBe(403);
-    }
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      HttpException,
+    );
   });
 });

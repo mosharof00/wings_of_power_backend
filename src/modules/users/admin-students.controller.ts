@@ -16,6 +16,7 @@ import { GetUser } from '../auth/decorators/get-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
   MoveClassDto,
+  ResetStudentPasswordDto,
   StudentListQueryDto,
   UpdateStudentStatusDto,
 } from './dto/student-admin.dto';
@@ -65,5 +66,17 @@ export class AdminStudentsController {
     @Body() dto: MoveClassDto,
   ) {
     return this.studentsService.moveClass(userId, id, dto);
+  }
+
+  @ApiOperation({
+    summary: 'Set a temporary student password for staff to share with the child',
+  })
+  @Post('students/:id/reset-password')
+  resetPassword(
+    @GetUser('userId') userId: string,
+    @Param('id') id: string,
+    @Body() dto: ResetStudentPasswordDto,
+  ) {
+    return this.studentsService.resetPassword(userId, id, dto);
   }
 }

@@ -33,17 +33,56 @@ export class MailService {
     }
   }
 
-  // send otp code for email verification
-  async sendOtpCodeToEmail({ name, email, otp }) {
+  async sendStaffInviteCredentials(payload: {
+    to: string;
+    name: string;
+    email: string;
+    temporaryPassword: string;
+    className?: string | null;
+    invitedBy: string;
+    signInUrl: string;
+  }) {
     try {
       const from = `${process.env.APP_NAME} <${appConfig().mail.from}>`;
-      const subject = 'Email Verification';
+      await this.queue.add('sendStaffInviteCredentials', {
+        to: payload.to,
+        from,
+        subject: `You're invited to ${appConfig().app.name}`,
+        template: 'staff-invite',
+        context: {
+          name: payload.name,
+          email: payload.email,
+          temporaryPassword: payload.temporaryPassword,
+          className: payload.className ?? '',
+          invitedBy: payload.invitedBy,
+          signInUrl: payload.signInUrl,
+        },
+      });
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  // send otp code for email verification / password reset
+  async sendOtpCodeToEmail({
+    name,
+    email,
+    otp,
+    subject = 'Email Verification',
+  }: {
+    name?: string | null;
+    email: string;
+    otp: string;
+    subject?: string;
+  }) {
+    try {
+      const from = `${process.env.APP_NAME} <${appConfig().mail.from}>`;
 
       // add to queue
       await this.queue.add('sendOtpCodeToEmail', {
         to: email,
         from: from,
-        subject: subject,
+        subject,
         template: 'email-verification',
         context: {
           name: name,
