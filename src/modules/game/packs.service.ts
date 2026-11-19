@@ -225,7 +225,7 @@ export class PacksService {
         include: {
           stories: {
             include: {
-              story: true,
+              story: { include: { theme: true } },
             },
           },
           questions: {
@@ -309,7 +309,7 @@ export class PacksService {
       return tx.gameQuestionPack.findUnique({
         where: { id: pack.id },
         include: {
-          stories: { include: { story: true } },
+          stories: { include: { story: { include: { theme: true } } } },
           questions: {
             orderBy: [{ round_type: 'asc' }, { sort_order: 'asc' }],
           },
@@ -397,7 +397,7 @@ export class PacksService {
       return tx.gameQuestionPack.findUnique({
         where: { id: existingPack.id },
         include: {
-          stories: { include: { story: true } },
+          stories: { include: { story: { include: { theme: true } } } },
           questions: {
             orderBy: [{ round_type: 'asc' }, { sort_order: 'asc' }],
           },
@@ -469,7 +469,7 @@ export class PacksService {
       include: {
         stories: {
           include: {
-            story: true,
+            story: { include: { theme: true } },
           },
         },
         questions: {
@@ -630,7 +630,8 @@ export class PacksService {
             title: s.story.title,
             coverUrl: s.story.cover_url,
             cover_url: s.story.cover_url,
-            category: s.story.category,
+            category: s.story.theme?.slug ?? s.story.theme_id,
+            themeId: s.story.theme_id,
             ageGroup: s.story.age_group,
             age_group: s.story.age_group,
             status: s.story.status,

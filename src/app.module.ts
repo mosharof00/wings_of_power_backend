@@ -20,6 +20,7 @@ import { MailModule } from './mail/mail.module';
 import { ContentModule } from './modules/content/content.module';
 import { QuizzesModule } from './modules/quizzes/quizzes.module';
 import { SchoolModule } from './modules/school/school.module';
+import { ThemesModule } from './modules/themes/themes.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProgressModule } from './modules/progress/progress.module';
@@ -86,6 +87,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     QuizzesModule,
     UsersModule,
     UploadsModule,
+    ThemesModule,
     ProgressModule,
     PointsModule,
     BadgesModule,

@@ -4,7 +4,6 @@ import {
   Prisma,
   PublishStatus,
   Role,
-  StoryCategory,
 } from 'prisma/generated/client';
 import { paginateResponse } from '../../common/pagination/pagination.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -26,10 +25,15 @@ export class StoriesService {
     const schoolId = await this.adminSchool(adminId);
     const page = query.page ?? 1;
     const perPage = query.perPage ?? 10;
+    const search = (query.search ?? query.q)?.trim();
     const where = {
       deleted_at: null,
       school_id: schoolId,
       ...(query.status ? { status: query.status } : {}),
+      ...(query.ageGroup ? { age_group: query.ageGroup } : {}),
+      ...(search
+        ? { title: { contains: search, mode: 'insensitive' as const } }
+        : {}),
     };
     const [total, rows] = await Promise.all([
       this.prisma.story.count({ where }),
@@ -38,6 +42,7 @@ export class StoriesService {
         skip: (page - 1) * perPage,
         take: perPage,
         orderBy: { updated_at: 'desc' },
+        include: { theme: true },
       }),
     ]);
     return {
@@ -59,6 +64,7 @@ export class StoriesService {
 
   async create(adminId: string, dto: CreateStoryDto) {
     const schoolId = await this.adminSchool(adminId);
+    await this.requireActiveTheme(dto.themeId);
     const created = await this.prisma.story.create({
       data: {
         school_id: schoolId,
@@ -66,12 +72,13 @@ export class StoriesService {
         title: dto.title.trim(),
         synopsis: dto.synopsis?.trim() || null,
         cover_url: dto.coverUrl?.trim() || null,
-        category: dto.category,
+        theme_id: dto.themeId,
         age_group: dto.ageGroup,
         status: PublishStatus.DRAFT,
         estimated_minutes: dto.estimatedMinutes ?? null,
         chapter_count: 0,
       },
+      include: { theme: true },
     });
     return {
       success: true,
@@ -83,6 +90,9 @@ export class StoriesService {
   async update(adminId: string, storyId: string, dto: UpdateStoryDto) {
     const schoolId = await this.adminSchool(adminId);
     await this.storyInSchool(storyId, schoolId);
+    if (dto.themeId) {
+      await this.requireActiveTheme(dto.themeId);
+    }
     const updated = await this.prisma.story.update({
       where: { id: storyId },
       data: {
@@ -93,13 +103,14 @@ export class StoriesService {
         ...(dto.coverUrl !== undefined
           ? { cover_url: dto.coverUrl.trim() || null }
           : {}),
-        ...(dto.category ? { category: dto.category } : {}),
+        ...(dto.themeId ? { theme_id: dto.themeId } : {}),
         ...(dto.ageGroup ? { age_group: dto.ageGroup } : {}),
         ...(dto.status ? { status: dto.status } : {}),
         ...(dto.estimatedMinutes !== undefined
           ? { estimated_minutes: dto.estimatedMinutes }
           : {}),
       },
+      include: { theme: true },
     });
     return {
       success: true,
@@ -241,7 +252,10 @@ export class StoriesService {
       deleted_at: null,
       school_id: schoolId,
       status: PublishStatus.PUBLISHED,
-      ...(query.category ? { category: query.category } : {}),
+      ...(query.themeId ? { theme_id: query.themeId } : {}),
+      ...(query.category && !query.themeId
+        ? { theme: { slug: query.category.toLowerCase() } }
+        : {}),
       ...(query.ageGroup ? { age_group: query.ageGroup } : {}),
       ...(search
         ? { title: { contains: search, mode: 'insensitive' as const } }
@@ -254,6 +268,7 @@ export class StoriesService {
         skip: (page - 1) * perPage,
         take: perPage,
         orderBy: { title: 'asc' },
+        include: { theme: true },
       }),
     ]);
     return {
@@ -346,6 +361,7 @@ export class StoriesService {
         deleted_at: null,
       },
       include: {
+        theme: true,
         chapters: { orderBy: { number: 'asc' } },
       },
     });
@@ -360,17 +376,27 @@ export class StoriesService {
     title: string;
     synopsis: string | null;
     cover_url: string | null;
-    category: StoryCategory;
+    theme_id: string;
     age_group: AgeGroup;
     estimated_minutes: number | null;
     chapter_count: number;
+    theme?: { id: string; name: string; slug: string; cover_url: string | null } | null;
   }) {
     return {
       id: row.id,
       title: row.title,
       synopsis: row.synopsis,
       coverUrl: row.cover_url,
-      category: row.category,
+      themeId: row.theme_id,
+      theme: row.theme
+        ? {
+            id: row.theme.id,
+            name: row.theme.name,
+            slug: row.theme.slug,
+            coverUrl: row.theme.cover_url,
+          }
+        : null,
+      category: row.theme?.slug ?? row.theme_id,
       ageGroup: row.age_group,
       estimatedMinutes: row.estimated_minutes,
       chapterCount: row.chapter_count,
@@ -390,22 +416,34 @@ export class StoriesService {
     title: string;
     synopsis: string | null;
     cover_url: string | null;
-    category: StoryCategory;
+    theme_id: string;
     age_group: AgeGroup;
     status: PublishStatus;
     estimated_minutes: number | null;
     chapter_count: number;
+    updated_at?: Date;
+    theme?: { id: string; name: string; slug: string; cover_url: string | null } | null;
   }) {
     return {
       id: row.id,
       title: row.title,
       synopsis: row.synopsis,
       coverUrl: row.cover_url,
-      category: row.category,
+      themeId: row.theme_id,
+      theme: row.theme
+        ? {
+            id: row.theme.id,
+            name: row.theme.name,
+            slug: row.theme.slug,
+            coverUrl: row.theme.cover_url,
+          }
+        : null,
+      category: row.theme?.slug ?? row.theme_id,
       ageGroup: row.age_group,
       status: row.status,
       estimatedMinutes: row.estimated_minutes,
       chapterCount: row.chapter_count,
+      updatedAt: row.updated_at,
     };
   }
 
@@ -414,11 +452,12 @@ export class StoriesService {
     title: string;
     synopsis: string | null;
     cover_url: string | null;
-    category: StoryCategory;
+    theme_id: string;
     age_group: AgeGroup;
     status: PublishStatus;
     estimated_minutes: number | null;
     chapter_count: number;
+    theme?: { id: string; name: string; slug: string; cover_url: string | null } | null;
     chapters?: Array<{
       id: string;
       number: number;
@@ -475,6 +514,16 @@ export class StoriesService {
     return user.school_id;
   }
 
+  private async requireActiveTheme(themeId: string) {
+    const theme = await this.prisma.storyTheme.findFirst({
+      where: { id: themeId, is_active: true },
+    });
+    if (!theme) {
+      throw new HttpException('Theme not found', HttpStatus.NOT_FOUND);
+    }
+    return theme;
+  }
+
   private async storyInSchool(
     storyId: string,
     schoolId: string,
@@ -482,19 +531,20 @@ export class StoriesService {
   ) {
     const story = await this.prisma.story.findFirst({
       where: { id: storyId, deleted_at: null },
-      ...(withChapters
-        ? {
-            include: {
+      include: {
+        theme: true,
+        ...(withChapters
+          ? {
               chapters: {
-                orderBy: { number: 'asc' },
+                orderBy: { number: 'asc' as const },
                 include: {
-                  pages: { orderBy: { number: 'asc' } },
+                  pages: { orderBy: { number: 'asc' as const } },
                   audio: true,
                 },
               },
-            },
-          }
-        : {}),
+            }
+          : {}),
+      },
     });
     if (!story) {
       throw new HttpException('Story not found', HttpStatus.NOT_FOUND);

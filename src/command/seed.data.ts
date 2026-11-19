@@ -10,7 +10,6 @@ import {
   QuizKind,
   Role,
   RoundType,
-  StoryCategory,
   UserStatus,
 } from 'prisma/generated/client';
 
@@ -141,7 +140,7 @@ export interface SeedPlan {
     title: string;
     slug: string;
     synopsis: string;
-    category: StoryCategory;
+    themeSlug: string;
     age_group: AgeGroup;
     status: PublishStatus;
     estimated_minutes: number;
@@ -397,7 +396,7 @@ export async function buildSeedPlan(env?: Partial<SeedEnv>): Promise<SeedPlan> {
       slug: 'faith-and-the-power-of-melody',
       synopsis:
         'Faith discovers how her violin music can bring students together and stand up against bullying.',
-      category: StoryCategory.KINDNESS,
+      themeSlug: 'kindness',
       age_group: AgeGroup.AGE_6_9,
       status: PublishStatus.PUBLISHED,
       estimated_minutes: 8,
@@ -734,14 +733,40 @@ export async function executeSeed(
     },
   });
 
-  // 11. Story, Chapters, Pages
+  // 11. Story themes (D59) + Story, Chapters, Pages
+  const defaultThemes = [
+    { slug: 'kindness', name: 'Kindness', sort_order: 10 },
+    { slug: 'courage', name: 'Courage', sort_order: 20 },
+    { slug: 'cyberbullying', name: 'Cyberbullying', sort_order: 30 },
+    { slug: 'friendship', name: 'Friendship', sort_order: 40 },
+    { slug: 'other', name: 'Other', sort_order: 90 },
+  ];
+  const themeIds: Record<string, string> = {};
+  for (const theme of defaultThemes) {
+    const row = await prisma.storyTheme.upsert({
+      where: { slug: theme.slug },
+      create: {
+        name: theme.name,
+        slug: theme.slug,
+        sort_order: theme.sort_order,
+        is_active: true,
+      },
+      update: {
+        name: theme.name,
+        sort_order: theme.sort_order,
+        is_active: true,
+      },
+    });
+    themeIds[theme.slug] = row.id;
+  }
+
   const story = await prisma.story.create({
     data: {
       school_id: school.id,
       title: plan.story.title,
       slug: plan.story.slug,
       synopsis: plan.story.synopsis,
-      category: plan.story.category,
+      theme_id: themeIds[plan.story.themeSlug],
       age_group: plan.story.age_group,
       status: plan.story.status,
       estimated_minutes: plan.story.estimated_minutes,

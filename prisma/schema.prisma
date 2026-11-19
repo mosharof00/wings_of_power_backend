@@ -27,14 +27,6 @@ enum AgeGroup {
   ADULTS
 }
 
-enum StoryCategory {
-  KINDNESS
-  COURAGE
-  CYBERBULLYING
-  FRIENDSHIP
-  OTHER
-}
-
 enum PublishStatus {
   DRAFT
   PUBLISHED
@@ -394,6 +386,19 @@ model StudentHeroUnlock {
   @@id([user_id, hero_id])
 }
 
+model StoryTheme {
+  id         String   @id @default(cuid())
+  name       String
+  slug       String   @unique
+  cover_url  String?
+  sort_order Int      @default(0)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  stories Story[]
+}
+
 model Story {
   id                String         @id @default(cuid())
   school_id         String
@@ -401,7 +406,7 @@ model Story {
   slug              String?
   synopsis          String?
   cover_url         String?
-  category          StoryCategory
+  theme_id          String
   age_group         AgeGroup
   status            PublishStatus
   estimated_minutes Int?
@@ -412,12 +417,13 @@ model Story {
   updated_at        DateTime       @updatedAt
 
   school           School          @relation(fields: [school_id], references: [id])
+  theme            StoryTheme      @relation(fields: [theme_id], references: [id])
   created_by       User?           @relation("StoryCreator", fields: [created_by_id], references: [id])
   chapters         Chapter[]
   reading_progress ReadingProgress[]
   pack_links       GamePackStory[]
 
-  @@index([school_id, status, age_group, category])
+  @@index([school_id, status, age_group, theme_id])
 }
 
 model Chapter {

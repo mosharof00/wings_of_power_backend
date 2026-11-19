@@ -9,7 +9,6 @@ import {
   QuizKind,
   Role,
   RoundType,
-  StoryCategory,
   UserStatus,
 } from 'prisma/generated/client';
 import * as bcrypt from 'bcrypt';
@@ -105,7 +104,7 @@ describe('SeedCommand and buildSeedPlan', () => {
       const plan = await buildSeedPlan({ saltRounds: 1 });
 
       expect(plan.story.status).toBe(PublishStatus.PUBLISHED);
-      expect(plan.story.category).toBe(StoryCategory.KINDNESS);
+      expect(plan.story.themeSlug).toBe('kindness');
       expect(plan.story.age_group).toBe(AgeGroup.AGE_6_9);
       expect(plan.story.chapters.length).toBeGreaterThanOrEqual(2);
       for (const ch of plan.story.chapters) {

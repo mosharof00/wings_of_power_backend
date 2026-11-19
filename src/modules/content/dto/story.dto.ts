@@ -10,11 +10,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import {
-  AgeGroup,
-  PublishStatus,
-  StoryCategory,
-} from 'prisma/generated/client';
+import { AgeGroup, PublishStatus } from 'prisma/generated/client';
 import { PaginationDto } from '../../../common/pagination/dto/offset-pagination.dto';
 
 export class StoryListQueryDto extends PaginationDto {
@@ -22,6 +18,21 @@ export class StoryListQueryDto extends PaginationDto {
   @IsOptional()
   @IsEnum(PublishStatus)
   status?: PublishStatus;
+
+  @ApiPropertyOptional({ enum: AgeGroup })
+  @IsOptional()
+  @IsEnum(AgeGroup)
+  ageGroup?: AgeGroup;
+
+  @ApiPropertyOptional({ description: 'Case-insensitive title contains' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ description: 'Alias for search (dashboard uses q)' })
+  @IsOptional()
+  @IsString()
+  q?: string;
 }
 
 export class CreateStoryDto {
@@ -40,9 +51,10 @@ export class CreateStoryDto {
   @IsString()
   coverUrl?: string;
 
-  @ApiProperty({ enum: StoryCategory })
-  @IsEnum(StoryCategory)
-  category: StoryCategory;
+  @ApiProperty({ description: 'StoryTheme id (D59)' })
+  @IsString()
+  @MinLength(1)
+  themeId: string;
 
   @ApiProperty({ enum: AgeGroup, description: 'AGE_6_9, AGE_10_13, or ADULTS' })
   @IsEnum(AgeGroup)
@@ -73,10 +85,10 @@ export class UpdateStoryDto {
   @IsString()
   coverUrl?: string;
 
-  @ApiPropertyOptional({ enum: StoryCategory })
+  @ApiPropertyOptional({ description: 'StoryTheme id (D59)' })
   @IsOptional()
-  @IsEnum(StoryCategory)
-  category?: StoryCategory;
+  @IsString()
+  themeId?: string;
 
   @ApiPropertyOptional({ enum: AgeGroup })
   @IsOptional()

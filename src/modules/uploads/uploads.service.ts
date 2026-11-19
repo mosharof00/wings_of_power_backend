@@ -23,6 +23,7 @@ const FOLDERS: Record<UploadPurpose, string> = {
   [UploadPurpose.CHAPTER_AUDIO]: 'chapter-audio',
   [UploadPurpose.BADGE_ART]: 'badge-art',
   [UploadPurpose.HERO_ART]: 'hero-art',
+  [UploadPurpose.THEME_COVER]: 'theme-cover',
   [UploadPurpose.KINDNESS_MEDIA]: 'kindness-media',
 };
 

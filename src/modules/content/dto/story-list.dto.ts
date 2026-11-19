@@ -1,13 +1,20 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString } from 'class-validator';
-import { AgeGroup, StoryCategory } from 'prisma/generated/client';
+import { AgeGroup } from 'prisma/generated/client';
 import { PaginationDto } from '../../../common/pagination/dto/offset-pagination.dto';
 
 export class StudentStoryQueryDto extends PaginationDto {
-  @ApiPropertyOptional({ enum: StoryCategory })
+  @ApiPropertyOptional({ description: 'StoryTheme id' })
   @IsOptional()
-  @IsEnum(StoryCategory)
-  category?: StoryCategory;
+  @IsString()
+  themeId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Legacy theme slug filter (e.g. kindness). Prefer themeId.',
+  })
+  @IsOptional()
+  @IsString()
+  category?: string;
 
   @ApiPropertyOptional({ enum: AgeGroup })
   @IsOptional()

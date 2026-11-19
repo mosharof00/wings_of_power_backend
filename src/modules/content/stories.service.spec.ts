@@ -4,7 +4,6 @@ import {
   AgeGroup,
   PublishStatus,
   Role,
-  StoryCategory,
   UserStatus,
 } from 'prisma/generated/client';
 import { ActiveStudentGuard } from '../../common/guard/role/active-student.guard';
@@ -18,6 +17,7 @@ import { StoriesService } from './stories.service';
 describe('StoriesService', () => {
   const prisma = {
     user: { findFirst: jest.fn() },
+    storyTheme: { findFirst: jest.fn() },
     story: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
@@ -55,12 +55,21 @@ describe('StoriesService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.user.findFirst.mockReset();
+    prisma.storyTheme.findFirst.mockReset();
     prisma.chapter.findFirst.mockReset();
     prisma.chapterAudio.findFirst.mockReset();
+    prisma.storyTheme.findFirst.mockResolvedValue({
+      id: 'theme_kindness',
+      is_active: true,
+    });
   });
 
   it('create is DRAFT and scoped to the admin school', async () => {
     prisma.user.findFirst.mockResolvedValue(admin);
+    prisma.storyTheme.findFirst.mockResolvedValue({
+      id: 'theme_kindness',
+      is_active: true,
+    });
     prisma.story.create.mockImplementation(async ({ data }) => ({
       id: 'story-1',
       ...data,
@@ -68,23 +77,31 @@ describe('StoriesService', () => {
 
     const result = await service.create('admin-1', {
       title: 'The Kindness Bridge',
-      category: StoryCategory.KINDNESS,
+      themeId: 'theme_kindness',
       ageGroup: AgeGroup.AGE_6_9,
     });
 
-    expect(prisma.story.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        school_id: 'school-1',
-        status: PublishStatus.DRAFT,
-        chapter_count: 0,
+    expect(prisma.story.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          school_id: 'school-1',
+          theme_id: 'theme_kindness',
+          status: PublishStatus.DRAFT,
+          chapter_count: 0,
+        }),
+        include: { theme: true },
       }),
-    });
+    );
     expect(result.data.status).toBe(PublishStatus.DRAFT);
     expect(result.data.ageGroup).toBe(AgeGroup.AGE_6_9);
   });
 
-  it('patch to PUBLISHED persists category and age group', async () => {
+  it('patch to PUBLISHED persists theme and age group', async () => {
     prisma.user.findFirst.mockResolvedValue(admin);
+    prisma.storyTheme.findFirst.mockResolvedValue({
+      id: 'theme_courage',
+      is_active: true,
+    });
     prisma.story.findFirst.mockResolvedValue({
       id: 'story-1',
       school_id: 'school-1',
@@ -97,25 +114,27 @@ describe('StoriesService', () => {
       cover_url: null,
       estimated_minutes: null,
       chapter_count: 0,
+      theme_id: data.theme_id,
       ...data,
     }));
 
     const result = await service.update('admin-1', 'story-1', {
       status: PublishStatus.PUBLISHED,
-      category: StoryCategory.COURAGE,
+      themeId: 'theme_courage',
       ageGroup: AgeGroup.AGE_10_13,
     });
 
     expect(prisma.story.update).toHaveBeenCalledWith({
       where: { id: 'story-1' },
       data: {
-        category: StoryCategory.COURAGE,
+        theme_id: 'theme_courage',
         age_group: AgeGroup.AGE_10_13,
         status: PublishStatus.PUBLISHED,
       },
+      include: { theme: true },
     });
     expect(result.data.status).toBe(PublishStatus.PUBLISHED);
-    expect(result.data.category).toBe(StoryCategory.COURAGE);
+    expect(result.data.themeId).toBe('theme_courage');
     expect(result.data.ageGroup).toBe(AgeGroup.AGE_10_13);
   });
 
@@ -254,6 +273,32 @@ describe('StoriesService', () => {
     status: UserStatus.ACTIVE,
   };
 
+  it('admin list filters by search and age group', async () => {
+    prisma.user.findFirst.mockResolvedValue(admin);
+    prisma.story.count.mockResolvedValue(0);
+    prisma.story.findMany.mockResolvedValue([]);
+
+    await service.list('admin-1', {
+      page: 1,
+      perPage: 15,
+      q: '  Lion ',
+      ageGroup: AgeGroup.AGE_6_9,
+      status: PublishStatus.DRAFT,
+    });
+
+    expect(prisma.story.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          school_id: 'school-1',
+          status: PublishStatus.DRAFT,
+          age_group: AgeGroup.AGE_6_9,
+          title: { contains: 'Lion', mode: 'insensitive' },
+        }),
+        include: { theme: true },
+      }),
+    );
+  });
+
   it('hides drafts and other schools', async () => {
     prisma.user.findFirst.mockResolvedValue(student);
     prisma.story.count.mockResolvedValue(0);
@@ -281,14 +326,14 @@ describe('StoriesService', () => {
       page: 1,
       perPage: 10,
       search: '  Kind ',
-      category: StoryCategory.KINDNESS,
+      themeId: 'theme_kindness',
     });
 
     expect(prisma.story.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           status: PublishStatus.PUBLISHED,
-          category: StoryCategory.KINDNESS,
+          theme_id: 'theme_kindness',
           title: { contains: 'Kind', mode: 'insensitive' },
         }),
       }),
@@ -326,7 +371,7 @@ describe('StoriesService', () => {
       title: 'The Kindness Bridge',
       synopsis: null,
       cover_url: null,
-      category: StoryCategory.KINDNESS,
+      themeId: 'theme_kindness',
       age_group: AgeGroup.AGE_6_9,
       estimated_minutes: 8,
       chapter_count: 1,

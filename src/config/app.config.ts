@@ -65,6 +65,7 @@ export default () => ({
     chapterAudio: '/chapter-audio',
     badgeArt: '/badge-art',
     heroArt: '/hero-art',
+    themeCover: '/theme-cover',
     kindnessMedia: '/kindness-media',
     avatar: '/avatar',
   },

@@ -334,6 +334,7 @@ export class ProgressService {
       include: {
         story: {
           include: {
+            theme: true,
             chapters: {
               where: { deleted_at: null },
               select: { id: true },
@@ -384,7 +385,8 @@ export class ProgressService {
           title: row.story.title,
           synopsis: row.story.synopsis,
           coverUrl: row.story.cover_url,
-          category: row.story.category,
+          category: row.story.theme?.slug ?? row.story.theme_id,
+          themeId: row.story.theme_id,
           ageGroup: row.story.age_group,
           chapterCount: row.story.chapter_count,
           chaptersCompleted: storyChaptersCompleted,
@@ -437,7 +439,7 @@ export class ProgressService {
         },
       },
       include: {
-        story: true,
+        story: { include: { theme: true } },
       },
       orderBy: { updated_at: 'desc' },
     });
@@ -449,7 +451,8 @@ export class ProgressService {
           title: continueProgress.story.title,
           synopsis: continueProgress.story.synopsis,
           coverUrl: continueProgress.story.cover_url,
-          category: continueProgress.story.category,
+          category: continueProgress.story.theme?.slug ?? continueProgress.story.theme_id,
+          themeId: continueProgress.story.theme_id,
           ageGroup: continueProgress.story.age_group,
           chapterCount: continueProgress.story.chapter_count,
           percent: continueProgress.percent,
@@ -480,11 +483,12 @@ export class ProgressService {
           age_group: studentAgeGroup,
         },
         orderBy: { created_at: 'desc' },
-        take: 10,
+        take: 8,
+        include: { theme: true },
       });
     }
 
-    if (popularRows.length < 10 && user.school_id) {
+    if (popularRows.length < 8 && user.school_id) {
       const existingIds = popularRows.map((s) => s.id);
       const remaining = await this.prisma.story.findMany({
         where: {
@@ -494,7 +498,8 @@ export class ProgressService {
           id: { notIn: existingIds },
         },
         orderBy: { created_at: 'desc' },
-        take: 10 - popularRows.length,
+        take: 8 - popularRows.length,
+        include: { theme: true },
       });
       popularRows = [...popularRows, ...remaining];
     }
@@ -504,11 +509,37 @@ export class ProgressService {
       title: s.title,
       synopsis: s.synopsis,
       coverUrl: s.cover_url,
-      category: s.category,
+      themeId: s.theme_id,
+      category: s.theme?.slug ?? s.theme_id,
       ageGroup: s.age_group,
       estimatedMinutes: s.estimated_minutes,
       chapterCount: s.chapter_count,
     }));
+
+    const themes = await this.prisma.storyTheme.findMany({
+      where: { is_active: true },
+      orderBy: [{ sort_order: 'asc' }, { name: 'asc' }],
+    });
+    const categories = await Promise.all(
+      themes.map(async (theme) => {
+        const storyCount = user.school_id
+          ? await this.prisma.story.count({
+              where: {
+                school_id: user.school_id,
+                theme_id: theme.id,
+                status: PublishStatus.PUBLISHED,
+                deleted_at: null,
+              },
+            })
+          : 0;
+        return {
+          id: theme.id,
+          title: theme.name,
+          storyCount,
+          imageUrl: theme.cover_url,
+        };
+      }),
+    );
 
     const eligibility = await this.eligibilityFor(userId);
 
@@ -519,6 +550,7 @@ export class ProgressService {
         pointsTotal,
         points: pointsTotal,
         continueStory,
+        categories,
         popularStories,
         eligible: eligibility.eligible,
       },
