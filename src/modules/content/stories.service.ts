@@ -3,6 +3,7 @@ import {
   AgeGroup,
   Prisma,
   PublishStatus,
+  QuizKind,
   Role,
 } from 'prisma/generated/client';
 import { paginateResponse } from '../../common/pagination/pagination.service';
@@ -285,13 +286,73 @@ export class StoriesService {
   async studentDetail(studentId: string, storyId: string) {
     const schoolId = await this.studentSchool(studentId);
     const story = await this.publishedStory(storyId, schoolId);
-    const progress = await this.prisma.readingProgress.findFirst({
-      where: { user_id: studentId, story_id: story.id },
+    const chapterIds = (story.chapters ?? []).map((c) => c.id);
+    const [progress, chapterProgressRows, quizzes] = await Promise.all([
+      this.prisma.readingProgress.findFirst({
+        where: { user_id: studentId, story_id: story.id },
+      }),
+      chapterIds.length
+        ? this.prisma.chapterProgress.findMany({
+            where: {
+              user_id: studentId,
+              chapter_id: { in: chapterIds },
+            },
+          })
+        : Promise.resolve([]),
+      chapterIds.length
+        ? this.prisma.quiz.findMany({
+            where: {
+              chapter_id: { in: chapterIds },
+              kind: QuizKind.CHAPTER,
+            },
+            select: { id: true, chapter_id: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const progressByChapter = new Map(
+      chapterProgressRows.map((row) => [row.chapter_id, row]),
+    );
+    const quizByChapter = new Map(
+      quizzes.map((row) => [row.chapter_id, row.id]),
+    );
+
+    const chapters = (story.chapters ?? []).map((chapter, index) => {
+      const prior = index > 0 ? story.chapters[index - 1] : null;
+      const priorDone = prior
+        ? Boolean(progressByChapter.get(prior.id)?.completed_at)
+        : true;
+      const own = progressByChapter.get(chapter.id);
+      const quizId = quizByChapter.get(chapter.id) ?? null;
+      return {
+        id: chapter.id,
+        storyId: story.id,
+        number: chapter.number,
+        chapterNumber: chapter.number,
+        title: chapter.title,
+        pageCount: chapter.page_count ?? 0,
+        isLocked: !priorDone,
+        isCompleted: Boolean(own?.completed_at),
+        progressPercent: own?.percent ?? 0,
+        hasQuiz: quizId != null,
+        quizId,
+        quizScore: own?.quiz_best_percent ?? null,
+      };
     });
+
+    const completedCount = chapters.filter((c) => c.isCompleted).length;
+    const isStarted = progress != null || completedCount > 0;
+    const isCompleted =
+      chapters.length > 0 && completedCount === chapters.length;
+
     return {
       success: true,
       data: {
         ...this.toStudentStory(story),
+        isStarted,
+        isCompleted,
+        currentChapterId: progress?.chapter_id ?? null,
+        overallPercent: progress?.percent ?? 0,
         progress: progress
           ? {
               percent: progress.percent,
@@ -299,12 +360,7 @@ export class StoriesService {
               pageNumber: progress.page_number,
             }
           : null,
-        chapters: (story.chapters ?? []).map((chapter) => ({
-          id: chapter.id,
-          number: chapter.number,
-          title: chapter.title,
-          pageCount: chapter.page_count ?? 0,
-        })),
+        chapters,
       },
     };
   }
@@ -322,18 +378,45 @@ export class StoriesService {
     if (!chapter) {
       throw new HttpException('Chapter not found', HttpStatus.NOT_FOUND);
     }
+    const [checkpoint, pageReads] = await Promise.all([
+      this.prisma.quiz.findFirst({
+        where: { chapter_id: chapter.id, kind: QuizKind.CHECKPOINT },
+        select: { id: true },
+      }),
+      this.prisma.pageRead.findMany({
+        where: { user_id: studentId, chapter_id: chapter.id },
+        select: { page_number: true },
+      }),
+    ]);
+    const readSet = new Set(pageReads.map((r) => r.page_number));
+    const pageCount = chapter.pages.length;
+    const midpoint =
+      pageCount > 0 ? Math.ceil(pageCount / 2) : null;
+
     return {
       success: true,
       data: {
         id: chapter.id,
+        storyId: story.id,
         number: chapter.number,
+        chapterNumber: chapter.number,
         title: chapter.title,
         audioUrl: chapter.audio?.audio_url ?? null,
-        pages: chapter.pages.map((page) => ({
-          number: page.number,
-          bodyText: page.body_text,
-          imageUrl: page.image_url,
-        })),
+        pages: chapter.pages.map((page, index) => {
+          const priorRead =
+            page.number <= 1 || readSet.has(page.number - 1);
+          return {
+            number: page.number,
+            bodyText: page.body_text,
+            imageUrl: page.image_url,
+            isLocked: !priorRead && !readSet.has(page.number),
+            isRead: readSet.has(page.number),
+            hasCheckpoint:
+              checkpoint != null &&
+              midpoint != null &&
+              page.number === midpoint,
+          };
+        }),
       },
     };
   }

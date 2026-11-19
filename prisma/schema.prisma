@@ -198,6 +198,7 @@ model User {
   quiz_attempts            QuizAttempt[]
   reading_progress         ReadingProgress[]
   chapter_progress         ChapterProgress[]
+  page_reads               PageRead[]
   points_ledger            PointsLedger[]            @relation("PointsOwner")
   points_awarded           PointsLedger[]            @relation("PointsAwarder")
   student_badges           StudentBadge[]
@@ -442,6 +443,7 @@ model Chapter {
   quizzes          Quiz[]
   chapter_progress ChapterProgress[]
   current_readers  ReadingProgress[]
+  page_reads       PageRead[]
 
   @@unique([story_id, number])
 }
@@ -641,6 +643,21 @@ model ChapterProgress {
   chapter Chapter @relation(fields: [chapter_id], references: [id])
 
   @@id([user_id, chapter_id])
+}
+
+/// Per-page read marks (D35). Story cursor remains on ReadingProgress.
+model PageRead {
+  user_id     String
+  chapter_id  String
+  page_number Int
+  mode        ReadingMode
+  read_at     DateTime    @default(now())
+
+  user    User    @relation(fields: [user_id], references: [id])
+  chapter Chapter @relation(fields: [chapter_id], references: [id])
+
+  @@id([user_id, chapter_id, page_number])
+  @@index([chapter_id])
 }
 
 model PointsLedger {

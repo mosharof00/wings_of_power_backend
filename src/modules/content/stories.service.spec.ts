@@ -43,6 +43,16 @@ describe('StoriesService', () => {
     readingProgress: {
       findFirst: jest.fn(),
     },
+    chapterProgress: {
+      findMany: jest.fn(),
+    },
+    quiz: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+    },
+    pageRead: {
+      findMany: jest.fn(),
+    },
   };
   const service = new StoriesService(prisma as unknown as PrismaService);
 
@@ -58,10 +68,18 @@ describe('StoriesService', () => {
     prisma.storyTheme.findFirst.mockReset();
     prisma.chapter.findFirst.mockReset();
     prisma.chapterAudio.findFirst.mockReset();
+    prisma.quiz.findFirst.mockReset();
+    prisma.quiz.findMany.mockReset();
+    prisma.pageRead.findMany.mockReset();
+    prisma.chapterProgress.findMany.mockReset();
     prisma.storyTheme.findFirst.mockResolvedValue({
       id: 'theme_kindness',
       is_active: true,
     });
+    prisma.quiz.findFirst.mockResolvedValue(null);
+    prisma.quiz.findMany.mockResolvedValue([]);
+    prisma.pageRead.findMany.mockResolvedValue([]);
+    prisma.chapterProgress.findMany.mockResolvedValue([]);
   });
 
   it('create is DRAFT and scoped to the admin school', async () => {
@@ -411,6 +429,9 @@ describe('StoriesService', () => {
         number: 1,
         bodyText: 'Hello',
         imageUrl: 'https://cdn/1.png',
+        isLocked: false,
+        isRead: false,
+        hasCheckpoint: false,
       },
     ]);
     expect(result.data.pages[0]).not.toHaveProperty('school_id');

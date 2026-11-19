@@ -31,8 +31,8 @@ export class ThemesController {
     return this.themesService.listAdmin();
   }
 
-  @Roles(Role.ADMIN, Role.TEACHER)
-  @ApiOperation({ summary: 'List active story themes for pickers' })
+  @Roles(Role.ADMIN, Role.TEACHER, Role.STUDENT)
+  @ApiOperation({ summary: 'List active story themes for pickers / library' })
   @Get('themes')
   listActive() {
     return this.themesService.listActive();

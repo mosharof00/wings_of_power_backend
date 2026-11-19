@@ -1,5 +1,10 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { QuestionType, QuizKind, Role } from 'prisma/generated/client';
+import {
+  PublishStatus,
+  QuestionType,
+  QuizKind,
+  Role,
+} from 'prisma/generated/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuizQuestionDto, UpsertQuizDto } from './dto/upsert-quiz.dto';
 
@@ -30,6 +35,51 @@ type StoredQuiz = {
 @Injectable()
 export class QuizzesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async listPublishedStories(teacherId: string) {
+    const teacher = await this.prisma.user.findFirst({
+      where: { id: teacherId },
+    });
+    if (!teacher || teacher.role !== Role.TEACHER) {
+      throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+    }
+    if (!teacher.school_id) {
+      throw new HttpException(
+        'School is not set up',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+    const stories = await this.prisma.story.findMany({
+      where: {
+        school_id: teacher.school_id,
+        status: PublishStatus.PUBLISHED,
+        deleted_at: null,
+      },
+      orderBy: { title: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        chapters: {
+          where: { deleted_at: null },
+          orderBy: { number: 'asc' },
+          select: { id: true, title: true, number: true },
+        },
+      },
+    });
+    return {
+      success: true,
+      data: stories.map((story) => ({
+        id: story.id,
+        title: story.title,
+        chapters: story.chapters.map((chapter) => ({
+          id: chapter.id,
+          title: chapter.title,
+          order: chapter.number,
+          number: chapter.number,
+        })),
+      })),
+    };
+  }
 
   async get(teacherId: string, chapterId: string) {
     await this.chapterInSchool(teacherId, chapterId);

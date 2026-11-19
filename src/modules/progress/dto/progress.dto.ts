@@ -1,7 +1,51 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import { ReadingMode } from 'prisma/generated/client';
+
+export class PageReadDto {
+  @ApiProperty()
+  @IsString()
+  storyId: string;
+
+  @ApiProperty()
+  @IsString()
+  chapterId: string;
+
+  @ApiProperty()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  pageNumber: number;
+
+  @ApiProperty({ enum: ReadingMode })
+  @IsEnum(ReadingMode)
+  mode: ReadingMode;
+
+  @ApiPropertyOptional({ description: 'Seconds the page stayed open (READ)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  dwellSeconds?: number;
+
+  @ApiPropertyOptional({
+    description: 'Listen progress percent for this page segment (0-100)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  listenPercent?: number;
+}
 
 export class PutProgressDto {
   @ApiPropertyOptional({ description: 'Chapter ID' })

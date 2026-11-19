@@ -14,7 +14,7 @@ import { Roles } from '../../common/guard/role/roles.decorator';
 import { RolesGuard } from '../../common/guard/role/roles.guard';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PutProgressDto } from './dto/progress.dto';
+import { PageReadDto, PutProgressDto } from './dto/progress.dto';
 import { ProgressService } from './progress.service';
 
 @ApiTags('progress')
@@ -24,6 +24,15 @@ import { ProgressService } from './progress.service';
 @Controller()
 export class ProgressController {
   constructor(private readonly progressService: ProgressService) {}
+
+  @ApiOperation({ summary: 'Mark a page read (dwell or listen threshold)' })
+  @Post('reading/page-read')
+  markPageRead(
+    @GetUser('userId') userId: string,
+    @Body() dto: PageReadDto,
+  ) {
+    return this.progressService.markPageRead(userId, dto);
+  }
 
   @ApiOperation({ summary: 'Save reading progress for a story' })
   @Put('stories/:id/progress')

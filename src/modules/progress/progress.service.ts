@@ -2,11 +2,16 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import {
   JoinRequestStatus,
   PublishStatus,
+  QuizKind,
+  ReadingMode,
   ReadingProgress,
   Role,
 } from 'prisma/generated/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PutProgressDto } from './dto/progress.dto';
+import { PageReadDto, PutProgressDto } from './dto/progress.dto';
+
+const READ_DWELL_SECONDS = Number(process.env.READ_DWELL_SECONDS ?? 3);
+const LISTEN_PROGRESS_PCT = Number(process.env.LISTEN_PROGRESS_PCT ?? 80);
 
 let activePrismaService: PrismaService | null = null;
 
@@ -196,6 +201,152 @@ export class ProgressService {
     };
   }
 
+  async markPageRead(userId: string, dto: PageReadDto) {
+    const user = await this.prisma.user.findFirst({ where: { id: userId } });
+    if (!user || user.role !== Role.STUDENT) {
+      throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+    }
+    if (!user.school_id) {
+      throw new HttpException(
+        'School is not set up',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
+    const story = await this.prisma.story.findFirst({
+      where: {
+        id: dto.storyId,
+        school_id: user.school_id,
+        status: PublishStatus.PUBLISHED,
+        deleted_at: null,
+      },
+    });
+    if (!story) {
+      throw new HttpException('Story not found', HttpStatus.NOT_FOUND);
+    }
+
+    const chapter = await this.prisma.chapter.findFirst({
+      where: {
+        id: dto.chapterId,
+        story_id: story.id,
+        deleted_at: null,
+      },
+      include: { pages: { select: { number: true } } },
+    });
+    if (!chapter) {
+      throw new HttpException('Chapter not found', HttpStatus.NOT_FOUND);
+    }
+
+    await this.assertChapterUnlocked(userId, story.id, chapter.number);
+
+    const pageExists =
+      chapter.pages.some((p) => p.number === dto.pageNumber) ||
+      (chapter.page_count != null &&
+        dto.pageNumber >= 1 &&
+        dto.pageNumber <= chapter.page_count);
+    if (!pageExists && (chapter.pages.length > 0 || chapter.page_count)) {
+      throw new HttpException('Page not found', HttpStatus.NOT_FOUND);
+    }
+
+    const dwellOk =
+      dto.mode === ReadingMode.READ &&
+      (dto.dwellSeconds ?? 0) >= READ_DWELL_SECONDS;
+    const listenOk =
+      dto.mode === ReadingMode.LISTEN &&
+      (dto.listenPercent ?? 0) >= LISTEN_PROGRESS_PCT;
+    // Allow either threshold regardless of mode label (listen while on READ UI, etc.)
+    const qualifies =
+      dwellOk ||
+      listenOk ||
+      (dto.dwellSeconds ?? 0) >= READ_DWELL_SECONDS ||
+      (dto.listenPercent ?? 0) >= LISTEN_PROGRESS_PCT;
+
+    if (!qualifies) {
+      const pageCount =
+        chapter.page_count ??
+        (chapter.pages.length > 0
+          ? Math.max(...chapter.pages.map((p) => p.number))
+          : 0);
+      const pagesRead = await this.prisma.pageRead.count({
+        where: { user_id: userId, chapter_id: chapter.id },
+      });
+      return {
+        success: true,
+        data: {
+          read: false,
+          pageNumber: dto.pageNumber,
+          pagesRead,
+          pageCount,
+          chapterUnlockedNext: false,
+        },
+      };
+    }
+
+    await this.prisma.pageRead.upsert({
+      where: {
+        user_id_chapter_id_page_number: {
+          user_id: userId,
+          chapter_id: chapter.id,
+          page_number: dto.pageNumber,
+        },
+      },
+      create: {
+        user_id: userId,
+        chapter_id: chapter.id,
+        page_number: dto.pageNumber,
+        mode: dto.mode,
+      },
+      update: {
+        mode: dto.mode,
+        read_at: new Date(),
+      },
+    });
+
+    const pageCount =
+      chapter.page_count ??
+      (chapter.pages.length > 0
+        ? Math.max(...chapter.pages.map((p) => p.number))
+        : 0);
+    const pagesRead = await this.prisma.pageRead.count({
+      where: { user_id: userId, chapter_id: chapter.id },
+    });
+
+    const percent =
+      pageCount > 0
+        ? Math.min(100, Math.round((pagesRead / pageCount) * 100))
+        : 0;
+    await this.prisma.readingProgress.upsert({
+      where: {
+        user_id_story_id: { user_id: userId, story_id: story.id },
+      },
+      create: {
+        user_id: userId,
+        story_id: story.id,
+        chapter_id: chapter.id,
+        page_number: dto.pageNumber,
+        percent,
+        last_mode: dto.mode,
+      },
+      update: {
+        chapter_id: chapter.id,
+        page_number: dto.pageNumber,
+        percent: Math.max(percent, 0),
+        last_mode: dto.mode,
+      },
+    });
+
+    return {
+      success: true,
+      data: {
+        read: true,
+        pageNumber: dto.pageNumber,
+        pagesRead,
+        pageCount,
+        chapterUnlockedNext: false,
+      },
+    };
+  }
+
   async completeChapter(userId: string, storyId: string, chapterId: string) {
     const user = await this.prisma.user.findFirst({ where: { id: userId } });
     if (!user || user.role !== Role.STUDENT) {
@@ -221,10 +372,14 @@ export class ProgressService {
 
     const chapter = await this.prisma.chapter.findFirst({
       where: { id: chapterId, story_id: story.id, deleted_at: null },
+      include: { pages: { select: { number: true } } },
     });
     if (!chapter) {
       throw new HttpException('Chapter not found', HttpStatus.NOT_FOUND);
     }
+
+    await this.assertChapterUnlocked(userId, story.id, chapter.number);
+    await this.assertChapterCompleteEligible(userId, chapter);
 
     const now = new Date();
     const chapterProgress = await this.prisma.chapterProgress.upsert({
@@ -569,5 +724,86 @@ export class ProgressService {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
+  }
+
+  private async assertChapterUnlocked(
+    userId: string,
+    storyId: string,
+    chapterNumber: number,
+  ) {
+    if (chapterNumber <= 1) return;
+    const prior = await this.prisma.chapter.findFirst({
+      where: {
+        story_id: storyId,
+        number: chapterNumber - 1,
+        deleted_at: null,
+      },
+    });
+    if (!prior) return;
+    const priorProgress = await this.prisma.chapterProgress.findUnique({
+      where: {
+        user_id_chapter_id: {
+          user_id: userId,
+          chapter_id: prior.id,
+        },
+      },
+    });
+    if (!priorProgress?.completed_at) {
+      throw new HttpException(
+        'Chapter is locked. Complete the previous chapter first.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
+  private async assertChapterCompleteEligible(
+    userId: string,
+    chapter: {
+      id: string;
+      page_count: number | null;
+      pages: Array<{ number: number }>;
+    },
+  ) {
+    const pageCount =
+      chapter.page_count ??
+      (chapter.pages.length > 0
+        ? Math.max(...chapter.pages.map((p) => p.number))
+        : 0);
+
+    if (pageCount > 0) {
+      const pagesRead = await this.prisma.pageRead.count({
+        where: { user_id: userId, chapter_id: chapter.id },
+      });
+      if (pagesRead < pageCount) {
+        throw new HttpException(
+          'Finish all pages before completing this chapter.',
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+    }
+
+    const checkpoint = await this.prisma.quiz.findFirst({
+      where: { chapter_id: chapter.id, kind: QuizKind.CHECKPOINT },
+      select: { id: true },
+    });
+    if (checkpoint) {
+      const passed = await this.prisma.quizAttempt.findFirst({
+        where: {
+          quiz_id: checkpoint.id,
+          user_id: userId,
+          completed_at: { not: null },
+        },
+      });
+      if (!passed) {
+        throw new HttpException(
+          'Pass the mid-chapter checkpoint before completing.',
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+    }
+
+    // CHAPTER quiz remains post-complete in the current reader UX (quiz CTA
+    // after chapter complete). Unlock of the *next* chapter is still
+    // completed_at; quiz_best_percent feeds game eligibility (D2).
   }
 }

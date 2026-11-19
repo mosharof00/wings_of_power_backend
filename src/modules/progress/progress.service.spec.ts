@@ -4,7 +4,6 @@ import {
   PublishStatus,
   ReadingMode,
   Role,
-  StoryCategory,
 } from 'prisma/generated/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { eligibilityFor, ProgressService } from './progress.service';
@@ -26,6 +25,7 @@ describe('ProgressService', () => {
       upsert: jest.fn(),
       count: jest.fn(),
       findMany: jest.fn(),
+      findUnique: jest.fn(),
     },
     readingProgress: {
       upsert: jest.fn(),
@@ -36,6 +36,16 @@ describe('ProgressService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    pageRead: {
+      count: jest.fn(),
+      upsert: jest.fn(),
+    },
+    quiz: {
+      findFirst: jest.fn(),
+    },
+    quizAttempt: {
+      findFirst: jest.fn(),
+    },
     pointsLedger: {
       aggregate: jest.fn(),
     },
@@ -44,6 +54,9 @@ describe('ProgressService', () => {
     },
     gameEligibilityConfig: {
       findFirst: jest.fn(),
+    },
+    storyTheme: {
+      findMany: jest.fn(),
     },
   };
 
@@ -63,7 +76,7 @@ describe('ProgressService', () => {
     title: 'Kind Wings',
     synopsis: 'A tale of courage',
     cover_url: 'https://cdn.example.com/cover.jpg',
-    category: StoryCategory.KINDNESS,
+    theme_id: 'theme_kindness',
     age_group: AgeGroup.AGE_6_9,
     status: PublishStatus.PUBLISHED,
     estimated_minutes: 10,
@@ -81,6 +94,7 @@ describe('ProgressService', () => {
     prisma.chapterProgress.upsert.mockReset();
     prisma.chapterProgress.count.mockReset();
     prisma.chapterProgress.findMany.mockReset();
+    prisma.chapterProgress.findUnique.mockReset();
     prisma.readingProgress.upsert.mockReset();
     prisma.readingProgress.findUnique.mockReset();
     prisma.readingProgress.findFirst.mockReset();
@@ -88,12 +102,21 @@ describe('ProgressService', () => {
     prisma.readingProgress.count.mockReset();
     prisma.readingProgress.create.mockReset();
     prisma.readingProgress.update.mockReset();
+    prisma.pageRead.count.mockReset();
+    prisma.pageRead.upsert.mockReset();
+    prisma.quiz.findFirst.mockReset();
+    prisma.quizAttempt.findFirst.mockReset();
     prisma.pointsLedger.aggregate.mockReset();
     prisma.classMembership.findFirst.mockReset();
     prisma.gameEligibilityConfig.findFirst.mockReset();
+    prisma.storyTheme.findMany.mockReset();
 
     prisma.user.findFirst.mockResolvedValue(studentUser);
     prisma.story.findFirst.mockResolvedValue(publishedStory);
+    prisma.pageRead.count.mockResolvedValue(0);
+    prisma.quiz.findFirst.mockResolvedValue(null);
+    prisma.quizAttempt.findFirst.mockResolvedValue(null);
+    prisma.storyTheme.findMany.mockResolvedValue([]);
   });
 
   describe('putStoryProgress', () => {
@@ -231,6 +254,9 @@ describe('ProgressService', () => {
       prisma.chapter.findFirst.mockResolvedValue({
         id: 'chap-1',
         story_id: 'story-1',
+        number: 1,
+        page_count: null,
+        pages: [],
         deleted_at: null,
       });
       prisma.chapterProgress.upsert.mockResolvedValue({
@@ -275,10 +301,25 @@ describe('ProgressService', () => {
     });
 
     it('completing the last chapter sets story completed_at', async () => {
-      prisma.chapter.findFirst.mockResolvedValue({
-        id: 'chap-2',
-        story_id: 'story-1',
-        deleted_at: null,
+      prisma.chapter.findFirst
+        .mockResolvedValueOnce({
+          id: 'chap-2',
+          story_id: 'story-1',
+          number: 2,
+          page_count: null,
+          pages: [],
+          deleted_at: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'chap-1',
+          story_id: 'story-1',
+          number: 1,
+          deleted_at: null,
+        });
+      prisma.chapterProgress.findUnique.mockResolvedValue({
+        user_id: 'student-1',
+        chapter_id: 'chap-1',
+        completed_at: new Date(),
       });
       prisma.chapterProgress.upsert.mockResolvedValue({
         user_id: 'student-1',

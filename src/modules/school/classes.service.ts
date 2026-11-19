@@ -142,14 +142,21 @@ export class ClassesService {
 
   async adminDetail(adminId: string, classId: string) {
     const schoolId = await this.adminSchool(adminId);
-    const row = await this.classInSchool(classId, schoolId);
-    const [counts, codes] = await Promise.all([
+    const row = await this.classInSchool(classId, schoolId, true);
+    const [counts, codes, students] = await Promise.all([
       this.membershipCounts([row.id]),
       this.activeCodes([row.id]),
+      this.classStudents(row.id, row.name),
     ]);
     return {
       success: true,
-      data: this.toClass(row, counts.get(row.id), codes.get(row.id) ?? null),
+      data: {
+        ...this.toClass(row, counts.get(row.id), codes.get(row.id) ?? null),
+        readingProgressPercent: 0,
+        quizScorePercent: 0,
+        createdBy: 'Admin',
+        students,
+      },
     };
   }
 
@@ -164,6 +171,7 @@ export class ClassesService {
         age_group: dto.ageGroup,
         teacher_id: dto.teacherId,
       },
+      include: { teacher: { select: ClassesService.teacherSelect } },
     });
     const code = await this.createActiveCode(created.id, adminId);
     return {
@@ -184,26 +192,32 @@ export class ClassesService {
     const schoolId = await this.adminSchool(adminId);
     await this.classInSchool(classId, schoolId);
     await this.teacherInSchool(dto.teacherId, schoolId);
-    const updated = await this.prisma.class.update({
+    await this.prisma.class.update({
       where: { id: classId },
       data: { teacher_id: dto.teacherId },
     });
+    const detail = await this.adminDetail(adminId, classId);
     return {
       success: true,
       message: 'Teacher updated',
-      data: { id: updated.id, teacherId: updated.teacher_id },
+      data: detail.data,
     };
   }
 
   async regenerateCode(adminId: string, classId: string) {
     const schoolId = await this.adminSchool(adminId);
-    await this.classInSchool(classId, schoolId);
+    const row = await this.classInSchool(classId, schoolId);
     await this.revokeActiveCodes(classId);
     const code = await this.createActiveCode(classId, adminId);
     return {
       success: true,
       message: 'Code regenerated',
-      data: { classId, code: code.code, codeId: code.id },
+      data: {
+        classId,
+        className: row.name,
+        code: code.code,
+        codeId: code.id,
+      },
     };
   }
 
@@ -451,6 +465,7 @@ export class ClassesService {
   ) {
     const page = query.page ?? 1;
     const perPage = query.perPage ?? 10;
+    const includeTeacher = 'school_id' in where;
     const [total, rows] = await Promise.all([
       this.prisma.class.count({ where }),
       this.prisma.class.findMany({
@@ -458,6 +473,9 @@ export class ClassesService {
         skip: (page - 1) * perPage,
         take: perPage,
         orderBy: { name: 'asc' },
+        ...(includeTeacher
+          ? { include: { teacher: { select: ClassesService.teacherSelect } } }
+          : {}),
       }),
     ]);
     const ids = rows.map((row) => row.id);
@@ -514,8 +532,24 @@ export class ClassesService {
     return teacher;
   }
 
-  private async classInSchool(classId: string, schoolId: string) {
-    const row = await this.prisma.class.findFirst({ where: { id: classId } });
+  private static readonly teacherSelect = {
+    id: true,
+    real_name: true,
+    username: true,
+    email: true,
+  } as const;
+
+  private async classInSchool(
+    classId: string,
+    schoolId: string,
+    withTeacher = false,
+  ) {
+    const row = await this.prisma.class.findFirst({
+      where: { id: classId },
+      ...(withTeacher
+        ? { include: { teacher: { select: ClassesService.teacherSelect } } }
+        : {}),
+    });
     if (!row) {
       throw new HttpException('Class not found', HttpStatus.NOT_FOUND);
     }
@@ -523,6 +557,82 @@ export class ClassesService {
       throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
     }
     return row;
+  }
+
+  private async classStudents(classId: string, className: string) {
+    const rows = await this.prisma.classMembership.findMany({
+      where: {
+        class_id: classId,
+        status: {
+          in: [JoinRequestStatus.APPROVED, JoinRequestStatus.PENDING],
+        },
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            nickname: true,
+            real_name: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { created_at: 'asc' },
+    });
+    return rows.map((row) => {
+      const name =
+        row.user.real_name?.trim() ||
+        row.user.nickname?.trim() ||
+        row.user.username?.trim() ||
+        'Student';
+      const handle = row.user.username?.trim() || row.user.id.slice(0, 8);
+      return {
+        id: row.user.id,
+        name,
+        handle,
+        studentCode: row.user.username?.trim() || row.user.id.slice(0, 8).toUpperCase(),
+        className,
+        positivePoints: 0,
+        progressPercent: 0,
+        reportCount: 0,
+        status:
+          row.status === JoinRequestStatus.PENDING
+            ? 'PENDING'
+            : row.user.status === 'INACTIVE'
+              ? 'INACTIVE'
+              : 'ACTIVE',
+      };
+    });
+  }
+
+  private toTeacherPayload(
+    teacher:
+      | {
+          id: string;
+          real_name: string | null;
+          username: string | null;
+          email: string | null;
+        }
+      | null
+      | undefined,
+  ) {
+    if (!teacher) return null;
+    const name =
+      teacher.real_name?.trim() ||
+      teacher.username?.trim() ||
+      teacher.email?.split('@')[0] ||
+      'Teacher';
+    const handle =
+      teacher.username?.trim() ||
+      teacher.email?.split('@')[0] ||
+      teacher.id.slice(0, 8);
+    return {
+      id: teacher.id,
+      name,
+      handle,
+      staffCode: teacher.username?.trim() || teacher.id.slice(0, 8).toUpperCase(),
+    };
   }
 
   private async revokeActiveCodes(classId: string) {
@@ -636,17 +746,39 @@ export class ClassesService {
       name: string;
       grade_label: string | null;
       age_group: string;
+      teacher_id?: string | null;
+      created_at?: Date;
+      teacher?: {
+        id: string;
+        real_name: string | null;
+        username: string | null;
+        email: string | null;
+      } | null;
     },
     counts: MembershipCounts | undefined,
     activeCode: { id: string; code: string; expiresAt: Date | null } | null,
   ) {
+    const membershipCounts = counts ?? { pending: 0, approved: 0, rejected: 0 };
+    const teacher = this.toTeacherPayload(row.teacher);
+    const codeExpired = activeCode?.expiresAt
+      ? activeCode.expiresAt.getTime() < Date.now()
+      : false;
     return {
       id: row.id,
       name: row.name,
+      grade: row.grade_label,
       gradeLabel: row.grade_label,
       ageGroup: row.age_group,
+      code: activeCode?.code ?? null,
+      codeExpired,
+      teacherId: row.teacher_id ?? teacher?.id ?? null,
+      teacherName: teacher?.name ?? null,
+      teacher,
+      studentCount: membershipCounts.approved,
+      status: 'ACTIVE' as const,
+      createdAt: row.created_at ? row.created_at.toISOString() : null,
       activeCode,
-      membershipCounts: counts ?? { pending: 0, approved: 0, rejected: 0 },
+      membershipCounts,
     };
   }
 }
