@@ -47,6 +47,9 @@ describe('ClassesService', () => {
       update: jest.fn(),
       findFirst: jest.fn(),
     },
+    quizAttempt: { findMany: jest.fn() },
+    readingProgress: { findMany: jest.fn() },
+    chapterProgress: { findMany: jest.fn() },
   };
   const service = new ClassesService(prisma as unknown as PrismaService);
 
@@ -71,6 +74,7 @@ describe('ClassesService', () => {
     prisma.classCode.updateMany.mockReset();
     prisma.classCode.findMany.mockResolvedValue([]);
     prisma.classMembership.groupBy.mockResolvedValue([]);
+    prisma.classMembership.findMany.mockResolvedValue([]);
   });
 
   it('lists only the caller’s classes', async () => {
@@ -86,6 +90,38 @@ describe('ClassesService', () => {
       expect.objectContaining({ id: 'class-1', name: 'Grade 4 · Amber' }),
     ]);
     expect(result.data.items).toHaveLength(1);
+  });
+
+  it('shows actual class scores and chapter completion', async () => {
+    prisma.class.findFirst.mockResolvedValue(amber);
+    prisma.classMembership.findMany.mockResolvedValue([
+      { user_id: 'student-1' },
+    ]);
+    prisma.quizAttempt.findMany.mockResolvedValue([
+      {
+        user_id: 'student-1',
+        score_correct: 3,
+        score_total: 4,
+        quiz: { chapter_id: 'chapter-1' },
+      },
+    ]);
+    prisma.readingProgress.findMany.mockResolvedValue([
+      {
+        user_id: 'student-1',
+        story: { id: 'story-1', title: 'A story', _count: { chapters: 2 } },
+      },
+    ]);
+    prisma.chapterProgress.findMany.mockResolvedValue([
+      { user_id: 'student-1', chapter: { story_id: 'story-1' } },
+    ]);
+
+    const result = await service.detail('teacher-1', 'class-1');
+
+    expect(result.data).toMatchObject({
+      avgQuizScore: 75,
+      readingProgressPercent: 50,
+      stories: [{ id: 'story-1', title: 'A story', progressPercent: 50 }],
+    });
   });
 
   it('lists pending memberships for that class', async () => {

@@ -8,6 +8,8 @@ import {
   JoinRequestStatus,
   MatchMode,
   MatchPhase,
+  QuizAttemptStatus,
+  QuizKind,
   Role,
   RoundType,
   UserStatus,
@@ -21,6 +23,7 @@ describe('Game REST & Socket connect (e2e)', () => {
   let prisma: PrismaService;
   let serverUrl: string;
   let port: number;
+  let eligibilityAttemptId: string | undefined;
 
   const runId = Math.random().toString(36).slice(2, 8);
   let adminToken: string;
@@ -77,32 +80,18 @@ describe('Game REST & Socket connect (e2e)', () => {
     studentToken = studentLoginRes.body.data.accessToken;
     studentId = studentLoginRes.body.data.user.id;
 
-    // Ensure student 1 has chapter progress with quiz score so eligibility succeeds
-    const chapter = await prisma.chapter.findFirst({
-      where: { story: { school_id: schoolId } },
+    const quiz = await prisma.quiz.findFirstOrThrow({
+      where: { kind: QuizKind.CHAPTER, chapter: { story: { school_id: schoolId, status: 'PUBLISHED' } } },
     });
-    if (chapter) {
-      await prisma.chapterProgress.upsert({
-        where: {
-          user_id_chapter_id: {
-            user_id: studentId,
-            chapter_id: chapter.id,
-          },
-        },
-        create: {
-          user_id: studentId,
-          chapter_id: chapter.id,
-          percent: 100,
-          quiz_best_percent: 100,
-          completed_at: new Date(),
-        },
-        update: {
-          percent: 100,
-          quiz_best_percent: 100,
-          completed_at: new Date(),
-        },
-      });
-    }
+    const eligibilityAttempt = await prisma.quizAttempt.create({
+      data: {
+        user_id: studentId, quiz_id: quiz.id,
+        status: QuizAttemptStatus.COMPLETED,
+        started_at: new Date(), completed_at: new Date(),
+        score_correct: 1, score_total: 1, points_awarded: 0,
+      },
+    });
+    eligibilityAttemptId = eligibilityAttempt.id;
 
     // 3. Create second student (student2) who has NO progress (ineligible)
     const cls = await prisma.class.findFirst({
@@ -180,6 +169,9 @@ describe('Game REST & Socket connect (e2e)', () => {
 
     // Cleanup matches and tickets created by test
     try {
+      if (eligibilityAttemptId) {
+        await prisma.quizAttempt.deleteMany({ where: { id: eligibilityAttemptId } });
+      }
       const matchIds = [singleMatchId, socketMatchId].filter(Boolean);
       if (matchIds.length > 0) {
         await prisma.gameMatch.updateMany({

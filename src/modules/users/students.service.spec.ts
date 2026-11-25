@@ -20,6 +20,8 @@ describe('StudentsService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    story: { findMany: jest.fn() },
+    quizAttempt: { findMany: jest.fn() },
   };
   const service = new StudentsService(prisma as unknown as PrismaService);
 
@@ -59,6 +61,64 @@ describe('StudentsService', () => {
           role: Role.STUDENT,
           school_id: 'school-1',
           status: UserStatus.PENDING,
+        }),
+      }),
+    );
+  });
+
+  it('reports chapter completion and averages the best score per chapter', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(admin).mockResolvedValueOnce({
+      id: 'student-1',
+      role: Role.STUDENT,
+      school_id: 'school-1',
+      memberships: [],
+    });
+    prisma.story.findMany.mockResolvedValue([
+      {
+        id: 'story-1',
+        title: 'A story',
+        chapters: [
+          { id: 'chapter-1', chapter_progress: [{}], quizzes: [{}] },
+          { id: 'chapter-2', chapter_progress: [], quizzes: [{}] },
+          { id: 'chapter-3', chapter_progress: [], quizzes: [{}] },
+        ],
+      },
+    ]);
+    prisma.quizAttempt.findMany.mockResolvedValue([
+      {
+        user_id: 'student-1',
+        score_correct: 4,
+        score_total: 5,
+        quiz: { chapter_id: 'chapter-1' },
+      },
+      {
+        user_id: 'student-1',
+        score_correct: 2,
+        score_total: 5,
+        quiz: { chapter_id: 'chapter-1' },
+      },
+      {
+        user_id: 'student-1',
+        score_correct: 0,
+        score_total: 3,
+        quiz: { chapter_id: 'chapter-2' },
+      },
+    ]);
+
+    const result = await service.adminDetail('admin-1', 'student-1');
+
+    expect(result.data).toMatchObject({
+      chaptersCompleted: 1,
+      progressPercent: 33,
+      quizAverage: 40,
+      progress: [
+        { completed: 1, total: 3, quizScore: '40%', quizStatus: 'REMAINING' },
+      ],
+    });
+    expect(prisma.quizAttempt.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          quiz: expect.objectContaining({ kind: 'CHAPTER' }),
         }),
       }),
     );

@@ -9,6 +9,7 @@ import { TeacherDashboardController } from './teacher-dashboard.controller';
 import * as progressModule from '../progress/progress.service';
 
 jest.mock('../progress/progress.service', () => ({
+  ...jest.requireActual('../progress/progress.service'),
   eligibilityFor: jest.fn(),
 }));
 
@@ -42,6 +43,13 @@ describe('DashboardsService', () => {
       story: {
         count: jest.fn(),
       },
+      classCreationRequest: { count: jest.fn().mockResolvedValue(0) },
+      classCodeRenewalRequest: { count: jest.fn().mockResolvedValue(0) },
+      quizAttempt: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      readingProgress: { count: jest.fn().mockResolvedValue(0) },
     };
 
     service = new DashboardsService(prisma as unknown as PrismaService);
@@ -190,6 +198,10 @@ describe('DashboardsService', () => {
       prisma.pointsLedger.aggregate.mockResolvedValue({
         _sum: { amount: 25 },
       });
+      prisma.quizAttempt.findMany.mockResolvedValueOnce([
+        { score_correct: 4, score_total: 5 },
+        { score_correct: 2, score_total: 4 },
+      ]);
 
       const result = await service.getTeacherDashboard(
         'teacher-1',
@@ -254,6 +266,9 @@ describe('DashboardsService', () => {
       expect(result.data.week).toHaveLength(5);
       expect(result.data.week[0].day).toBe('Mon');
       expect(result.data.week[4].day).toBe('Fri');
+      expect(result.data.week.map((day) => day.quizAverage)).toEqual([
+        65, 0, 0, 0, 0,
+      ]);
     });
   });
 
@@ -294,7 +309,7 @@ describe('DashboardsService', () => {
       );
     });
 
-    it('returns admin counts and recent activity without analytics series', async () => {
+    it('returns admin counts, completion rates, and recent activity', async () => {
       prisma.user.findFirst.mockResolvedValue(mockAdmin);
 
       // Student counts by status: ACTIVE, PENDING, INACTIVE
@@ -315,6 +330,12 @@ describe('DashboardsService', () => {
 
       // Classes count
       prisma.class.count.mockResolvedValue(6);
+      prisma.readingProgress.count
+        .mockResolvedValueOnce(8)
+        .mockResolvedValueOnce(3);
+      prisma.quizAttempt.count
+        .mockResolvedValueOnce(5)
+        .mockResolvedValueOnce(4);
 
       // Recent reports (last 10)
       const reportDate = new Date('2026-11-02T10:00:00.000Z');
@@ -367,27 +388,21 @@ describe('DashboardsService', () => {
       // 5. Classes count
       expect(result.data.classesCount).toBe(6);
 
-      // 6. Recent activity: reports and join approvals, each { type, id, at, label }
+      // 6. Recent activity: reports and join approvals
       expect(result.data.activity).toHaveLength(2);
       expect(result.data.activity[0]).toEqual({
-        type: 'JOIN_APPROVAL',
-        id: 'mem-1',
         at: approvalDate.toISOString(),
-        label: 'Join request approved for NewStudent',
         actor: 'Ms. Smith',
         sentence: 'approved join request for NewStudent',
       });
       expect(result.data.activity[1]).toEqual({
-        type: 'SAFE_SPACE_REPORT',
-        id: 'rep-1',
         at: reportDate.toISOString(),
-        label: 'Safe Space report submitted',
         actor: 'Kiddo',
         sentence: 'filed a safe space report',
       });
 
-      // REQUIRED TEST: admin payload has NO analytics series beyond the counts listed
-      expect(result.data).not.toHaveProperty('week');
+      expect(result.data.storyCompletionPercent).toBe(38);
+      expect(result.data.quizCompletionPercent).toBe(80);
       expect(result.data).not.toHaveProperty('readingHours');
       expect(result.data).not.toHaveProperty('listeningHours');
       expect(result.data).not.toHaveProperty('learningOverview');

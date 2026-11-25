@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import {
   JoinRequestStatus,
   PublishStatus,
+  QuizAttemptStatus,
   QuizKind,
   ReadingMode,
   ReadingProgress,
@@ -14,6 +15,61 @@ const READ_DWELL_SECONDS = Number(process.env.READ_DWELL_SECONDS ?? 3);
 const LISTEN_PROGRESS_PCT = Number(process.env.LISTEN_PROGRESS_PCT ?? 80);
 
 let activePrismaService: PrismaService | null = null;
+
+export function chapterQuizAttempts(
+  prisma: PrismaService,
+  studentIds: string[],
+  dates?: { gte: Date; lt: Date },
+) {
+  if (studentIds.length === 0) return Promise.resolve([]);
+  return prisma.quizAttempt.findMany({
+    where: {
+      user_id: { in: studentIds },
+      status: QuizAttemptStatus.COMPLETED,
+      completed_at: dates ?? { not: null },
+      score_total: { gt: 0 },
+      quiz: {
+        kind: QuizKind.CHAPTER,
+        chapter: {
+          deleted_at: null,
+          story: { deleted_at: null, status: PublishStatus.PUBLISHED },
+        },
+      },
+    },
+    select: {
+      user_id: true,
+      completed_at: true,
+      score_correct: true,
+      score_total: true,
+      quiz: { select: { chapter_id: true } },
+    },
+  });
+}
+
+export function bestChapterQuizScores(
+  attempts: Awaited<ReturnType<typeof chapterQuizAttempts>>,
+) {
+  const scores = new Map<string, Map<string, number>>();
+  for (const attempt of attempts) {
+    const chapters = scores.get(attempt.user_id) ?? new Map<string, number>();
+    const id = attempt.quiz.chapter_id;
+    const percent = Math.round(
+      (100 * attempt.score_correct) / attempt.score_total,
+    );
+    chapters.set(id, Math.max(chapters.get(id) ?? 0, percent));
+    scores.set(attempt.user_id, chapters);
+  }
+  return scores;
+}
+
+export function averageQuizPercent(scores: number[]) {
+  return scores.length
+    ? Math.round(
+        (100 * scores.reduce((total, score) => total + score, 0)) /
+          scores.length,
+      ) / 100
+    : null;
+}
 
 export interface EligibilityResult {
   eligible: boolean;
@@ -50,30 +106,26 @@ export async function eligibilityFor(
     userId = userIdOrPrisma as string;
   }
 
-  const [completedStories, completedChapters, scoredChapters, user] =
+  const [completedStories, completedChapters, attempts, user] =
     await Promise.all([
       prisma.readingProgress.count({
         where: {
           user_id: userId,
           completed_at: { not: null },
-          story: { deleted_at: null },
+          story: { deleted_at: null, status: PublishStatus.PUBLISHED },
         },
       }),
       prisma.chapterProgress.count({
         where: {
           user_id: userId,
           completed_at: { not: null },
-          chapter: { deleted_at: null },
+          chapter: {
+            deleted_at: null,
+            story: { deleted_at: null, status: PublishStatus.PUBLISHED },
+          },
         },
       }),
-      prisma.chapterProgress.findMany({
-        where: {
-          user_id: userId,
-          quiz_best_percent: { not: null },
-          chapter: { deleted_at: null },
-        },
-        select: { quiz_best_percent: true },
-      }),
+      chapterQuizAttempts(prisma, [userId]),
       prisma.user.findFirst({
         where: { id: userId },
         select: { school_id: true },
@@ -90,19 +142,13 @@ export async function eligibilityFor(
   const requiredChapters = config?.required_chapters ?? 6;
   const minQuizPercent = config?.min_quiz_percent ?? 70;
 
-  const hasQuizScores = scoredChapters.length > 0;
-  const sumScores = scoredChapters.reduce(
-    (acc, row) => acc + (row.quiz_best_percent ?? 0),
-    0,
-  );
-  const quizMean = hasQuizScores
-    ? Math.round((sumScores / scoredChapters.length) * 100) / 100
-    : 0;
+  const scores = bestChapterQuizScores(attempts).get(userId);
+  const quizMean = averageQuizPercent([...(scores?.values() ?? [])]);
 
   const storiesOrChaptersMet =
     completedStories >= requiredStories ||
     completedChapters >= requiredChapters;
-  const quizConditionMet = hasQuizScores && quizMean >= minQuizPercent;
+  const quizConditionMet = quizMean !== null && quizMean >= minQuizPercent;
   const eligible = storiesOrChaptersMet && quizConditionMet;
 
   return {
@@ -110,7 +156,7 @@ export async function eligibilityFor(
     progress: {
       storiesCompleted: completedStories,
       chaptersCompleted: completedChapters,
-      quizMean,
+      quizMean: quizMean ?? 0,
     },
     rules: {
       requiredStories,

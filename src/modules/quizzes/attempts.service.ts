@@ -119,9 +119,23 @@ export class AttemptsService {
       },
     });
     if (existing) {
+      const answers =
+        quiz.kind === QuizKind.CHAPTER
+          ? await this.prisma.quizAnswer.findMany({
+              where: { attempt_id: existing.id },
+              select: { question_id: true, option_id: true, is_correct: true },
+            })
+          : [];
       return {
         success: true,
-        data: this.toAttempt(existing),
+        data: {
+          ...this.toAttempt(existing),
+          answers: answers.map((answer) => ({
+            questionId: answer.question_id,
+            optionId: answer.option_id,
+            isCorrect: answer.is_correct,
+          })),
+        },
       };
     }
 
@@ -335,7 +349,7 @@ export class AttemptsService {
     const scoreTotal = questions.length;
 
     let pointRuleValue = 1;
-    if (attempt.user?.school_id) {
+    if (attempt.quiz.kind === QuizKind.CHAPTER && attempt.user?.school_id) {
       const rule = await this.prisma.pointRule.findFirst({
         where: {
           school_id: attempt.user.school_id,
@@ -347,7 +361,10 @@ export class AttemptsService {
       }
     }
 
-    const pointsAwarded = Math.max(0, scoreCorrect * pointRuleValue);
+    const pointsAwarded =
+      attempt.quiz.kind === QuizKind.CHECKPOINT
+        ? 0
+        : Math.max(0, scoreCorrect * pointRuleValue);
 
     const completed = await this.prisma.quizAttempt.update({
       where: { id: attempt.id },
@@ -359,6 +376,18 @@ export class AttemptsService {
         points_awarded: pointsAwarded,
       },
     });
+
+    if (attempt.quiz.kind === QuizKind.CHECKPOINT) {
+      return {
+        success: true,
+        message: 'Attempt completed',
+        data: {
+          ...this.toAttempt(completed),
+          quizBestPercent: null,
+          quiz_best_percent: null,
+        },
+      };
+    }
 
     await this.prisma.pointsLedger.create({
       data: {

@@ -203,6 +203,7 @@ describe('AttemptsService', () => {
       prisma.user.findFirst.mockResolvedValue(student);
       prisma.quiz.findFirst.mockResolvedValue({
         id: 'quiz-1',
+        kind: QuizKind.CHAPTER,
         chapter: chapter,
       });
       prisma.quizAttempt.findFirst.mockResolvedValue({
@@ -216,11 +217,17 @@ describe('AttemptsService', () => {
         points_awarded: 0,
         status: QuizAttemptStatus.IN_PROGRESS,
       });
+      prisma.quizAnswer.findMany.mockResolvedValue([
+        { question_id: 'q-1', option_id: 'opt-1', is_correct: true },
+      ]);
 
       const result = await service.startAttempt('student-1', 'quiz-1');
 
       expect(result.success).toBe(true);
       expect(result.data.id).toBe('existing-attempt');
+      expect(result.data).toMatchObject({
+        answers: [{ questionId: 'q-1', optionId: 'opt-1', isCorrect: true }],
+      });
       expect(prisma.quizAttempt.create).not.toHaveBeenCalled();
     });
   });
@@ -413,6 +420,35 @@ describe('AttemptsService', () => {
   });
 
   describe('completeAttempt', () => {
+    it('saves checkpoint completion without points or a chapter quiz score', async () => {
+      const attempt = {
+        id: 'attempt-checkpoint',
+        quiz_id: 'quiz-checkpoint',
+        user_id: 'student-1',
+        status: QuizAttemptStatus.IN_PROGRESS,
+        user: student,
+        quiz: { kind: QuizKind.CHECKPOINT, chapter_id: 'ch-1' },
+      };
+      prisma.quizAttempt.findFirst.mockResolvedValue(attempt);
+      prisma.question.findMany.mockResolvedValue([{ id: 'q-1' }]);
+      prisma.quizAnswer.findMany.mockResolvedValue([
+        { question_id: 'q-1', is_correct: true },
+      ]);
+      prisma.quizAttempt.update.mockImplementation(async ({ data }) => ({
+        ...attempt,
+        ...data,
+      }));
+
+      const result = await service.completeAttempt('student-1', attempt.id);
+
+      expect(result.data).toMatchObject({
+        scoreCorrect: 1,
+        pointsAwarded: 0,
+        quizBestPercent: null,
+      });
+      expect(prisma.pointsLedger.create).not.toHaveBeenCalled();
+      expect(prisma.chapterProgress.upsert).not.toHaveBeenCalled();
+    });
     it('complete writes a ledger row with kindness_amount 0 and amount = correct count when the rule is 1', async () => {
       const attempt = {
         id: 'attempt-comp',
@@ -420,7 +456,12 @@ describe('AttemptsService', () => {
         user_id: 'student-1',
         status: QuizAttemptStatus.IN_PROGRESS,
         user: student,
-        quiz: { id: 'quiz-1', title: 'Chapter Quiz', chapter_id: 'ch-1' },
+        quiz: {
+          id: 'quiz-1',
+          kind: QuizKind.CHAPTER,
+          title: 'Chapter Quiz',
+          chapter_id: 'ch-1',
+        },
       };
 
       prisma.quizAttempt.findFirst.mockResolvedValue(attempt);

@@ -1,10 +1,21 @@
 import { randomBytes } from 'crypto';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { JoinRequestStatus, Role, UserStatus } from 'prisma/generated/client';
+import {
+  JoinRequestStatus,
+  PublishStatus,
+  QuizKind,
+  Role,
+  UserStatus,
+} from 'prisma/generated/client';
 import { paginateResponse } from '../../common/pagination/pagination.service';
 import appConfig from '../../config/app.config';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  averageQuizPercent,
+  bestChapterQuizScores,
+  chapterQuizAttempts,
+} from '../progress/progress.service';
 import {
   MoveClassDto,
   ResetStudentPasswordDto,
@@ -53,7 +64,7 @@ export class StudentsService {
   async adminDetail(adminId: string, studentId: string) {
     const schoolId = await this.adminSchool(adminId);
     const student = await this.studentInSchool(studentId, schoolId);
-    return { success: true, data: this.studentDetail(student) };
+    return { success: true, data: await this.studentDetail(student, schoolId) };
   }
 
   async updateStatus(
@@ -206,17 +217,120 @@ export class StudentsService {
     }
     return {
       success: true,
-      data: this.studentDetail(student, teacherId),
+      data: await this.studentDetail(student, schoolId, teacherId),
     };
   }
 
-  private studentDetail(student: StudentRow, teacherId?: string) {
+  private async studentDetail(
+    student: StudentRow,
+    schoolId: string,
+    teacherId?: string,
+  ) {
     const memberships = teacherId
       ? student.memberships.filter(
           (membership) => membership.class?.teacher_id === teacherId,
         )
       : student.memberships;
     const membership = this.displayMembership(memberships);
+    const [stories, attempts] = await Promise.all([
+      this.prisma.story.findMany({
+        where: {
+          school_id: schoolId,
+          deleted_at: null,
+          status: PublishStatus.PUBLISHED,
+          OR: [
+            { reading_progress: { some: { user_id: student.id } } },
+            {
+              chapters: {
+                some: {
+                  deleted_at: null,
+                  chapter_progress: { some: { user_id: student.id } },
+                },
+              },
+            },
+            {
+              chapters: {
+                some: {
+                  deleted_at: null,
+                  quizzes: {
+                    some: {
+                      kind: QuizKind.CHAPTER,
+                      attempts: {
+                        some: {
+                          user_id: student.id,
+                          completed_at: { not: null },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        orderBy: { title: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          chapters: {
+            where: { deleted_at: null },
+            select: {
+              id: true,
+              chapter_progress: {
+                where: { user_id: student.id, completed_at: { not: null } },
+                select: { chapter_id: true },
+              },
+              quizzes: {
+                where: { kind: QuizKind.CHAPTER, questions: { some: {} } },
+                select: { id: true },
+                take: 1,
+              },
+            },
+          },
+        },
+      }),
+      chapterQuizAttempts(this.prisma, [student.id]),
+    ]);
+    const bestByChapter = bestChapterQuizScores(attempts).get(student.id);
+    const progress = stories.map((story) => {
+      const total = story.chapters.length;
+      const completed = story.chapters.filter(
+        (chapter) => chapter.chapter_progress.length > 0,
+      ).length;
+      const quizScores = story.chapters.flatMap(({ id }) => {
+        const score = bestByChapter?.get(id);
+        return score === undefined ? [] : [score];
+      });
+      const availableQuizzes = story.chapters.filter(
+        (chapter) => chapter.quizzes.length > 0,
+      ).length;
+      const average = averageQuizPercent(quizScores);
+      const quizScore = average === null ? null : `${average}%`;
+      return {
+        id: story.id,
+        story: story.title,
+        chaptersCompleted: completed,
+        chaptersTotal: total,
+        progressPercent: total > 0 ? Math.round((100 * completed) / total) : 0,
+        status: total > 0 && completed === total ? 'COMPLETED' : 'IN_PROGRESS',
+        chapters: String(total),
+        completed,
+        total,
+        score: quizScore,
+        quizStatus:
+          quizScores.length === 0
+            ? 'WAITING'
+            : quizScores.length >= availableQuizzes
+              ? 'COMPLETED'
+              : 'REMAINING',
+        quizScore,
+      };
+    });
+    const chaptersCompleted = progress.reduce(
+      (sum, story) => sum + story.completed,
+      0,
+    );
+    const chaptersTotal = progress.reduce((sum, story) => sum + story.total, 0);
     return {
       user: {
         id: student.id,
@@ -240,7 +354,13 @@ export class StudentsService {
         : null,
       points: [],
       badges: [],
-      progress: [],
+      chaptersCompleted,
+      progressPercent:
+        chaptersTotal > 0
+          ? Math.round((100 * chaptersCompleted) / chaptersTotal)
+          : 0,
+      quizAverage: averageQuizPercent([...(bestByChapter?.values() ?? [])]),
+      progress,
       reports: [],
     };
   }

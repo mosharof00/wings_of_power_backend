@@ -5,11 +5,18 @@ import {
   ClassCodeStatus,
   JoinRequestStatus,
   Prisma,
+  PublishStatus,
   RenewalRequestStatus,
   Role,
+  UserStatus,
 } from 'prisma/generated/client';
 import { paginateResponse } from '../../common/pagination/pagination.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  averageQuizPercent,
+  bestChapterQuizScores,
+  chapterQuizAttempts,
+} from '../progress/progress.service';
 import { ClassQueryDto } from './dto/class-query.dto';
 import {
   ChangeTeacherDto,
@@ -66,13 +73,17 @@ export class ClassesService {
 
   async detail(teacherId: string, classId: string) {
     const row = await this.ownedClass(classId, teacherId);
-    const [counts, codes] = await Promise.all([
+    const [counts, codes, learning] = await Promise.all([
       this.membershipCounts([row.id]),
       this.activeCodes([row.id]),
+      this.classLearning(row.id),
     ]);
     return {
       success: true,
-      data: this.toClass(row, counts.get(row.id), codes.get(row.id) ?? null),
+      data: {
+        ...this.toClass(row, counts.get(row.id), codes.get(row.id) ?? null),
+        ...learning,
+      },
     };
   }
 
@@ -143,20 +154,102 @@ export class ClassesService {
   async adminDetail(adminId: string, classId: string) {
     const schoolId = await this.adminSchool(adminId);
     const row = await this.classInSchool(classId, schoolId, true);
-    const [counts, codes, students] = await Promise.all([
+    const [counts, codes, students, learning] = await Promise.all([
       this.membershipCounts([row.id]),
       this.activeCodes([row.id]),
       this.classStudents(row.id, row.name),
+      this.classLearning(row.id),
     ]);
     return {
       success: true,
       data: {
         ...this.toClass(row, counts.get(row.id), codes.get(row.id) ?? null),
-        readingProgressPercent: 0,
-        quizScorePercent: 0,
+        readingProgressPercent: learning.readingProgressPercent,
+        quizScorePercent: learning.avgQuizScore,
         createdBy: 'Admin',
         students,
       },
+    };
+  }
+
+  private async classLearning(classId: string) {
+    const students = await this.prisma.classMembership.findMany({
+      where: {
+        class_id: classId,
+        status: JoinRequestStatus.APPROVED,
+        user: {
+          role: Role.STUDENT,
+          status: UserStatus.ACTIVE,
+          deleted_at: null,
+        },
+      },
+      select: { user_id: true },
+    });
+    const ids = students.map((student) => student.user_id);
+    if (!ids.length)
+      return { avgQuizScore: null, readingProgressPercent: null, stories: [] };
+    const storyFilter = { deleted_at: null, status: PublishStatus.PUBLISHED };
+    const [attempts, started, completed] = await Promise.all([
+      chapterQuizAttempts(this.prisma, ids),
+      this.prisma.readingProgress.findMany({
+        where: { user_id: { in: ids }, story: storyFilter },
+        select: {
+          user_id: true,
+          story: {
+            select: {
+              id: true,
+              title: true,
+              _count: { select: { chapters: { where: { deleted_at: null } } } },
+            },
+          },
+        },
+      }),
+      this.prisma.chapterProgress.findMany({
+        where: {
+          user_id: { in: ids },
+          completed_at: { not: null },
+          chapter: { deleted_at: null, story: storyFilter },
+        },
+        select: { user_id: true, chapter: { select: { story_id: true } } },
+      }),
+    ]);
+    const counts = new Map<string, number>();
+    for (const row of completed) {
+      const key = `${row.user_id}:${row.chapter.story_id}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const storyProgress = new Map<
+      string,
+      { title: string; completed: number; total: number }
+    >();
+    for (const { user_id, story } of started) {
+      const progress = storyProgress.get(story.id) ?? {
+        title: story.title,
+        completed: 0,
+        total: 0,
+      };
+      progress.completed += counts.get(`${user_id}:${story.id}`) ?? 0;
+      progress.total += story._count.chapters;
+      storyProgress.set(story.id, progress);
+    }
+    const values = [...storyProgress.values()];
+    const total = values.reduce((sum, story) => sum + story.total, 0);
+    const finished = values.reduce((sum, story) => sum + story.completed, 0);
+    const scores = bestChapterQuizScores(attempts);
+    return {
+      avgQuizScore: averageQuizPercent(
+        [...scores.values()].flatMap((chapters) => [...chapters.values()]),
+      ),
+      readingProgressPercent:
+        total > 0 ? Math.round((100 * finished) / total) : null,
+      stories: [...storyProgress].map(([id, story]) => ({
+        id,
+        title: story.title,
+        progressPercent:
+          story.total > 0
+            ? Math.round((100 * story.completed) / story.total)
+            : 0,
+      })),
     };
   }
 

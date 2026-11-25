@@ -45,6 +45,7 @@ describe('ProgressService', () => {
     },
     quizAttempt: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
     },
     pointsLedger: {
       aggregate: jest.fn(),
@@ -116,6 +117,7 @@ describe('ProgressService', () => {
     prisma.pageRead.count.mockResolvedValue(0);
     prisma.quiz.findFirst.mockResolvedValue(null);
     prisma.quizAttempt.findFirst.mockResolvedValue(null);
+    prisma.quizAttempt.findMany.mockReset().mockResolvedValue([]);
     prisma.storyTheme.findMany.mockResolvedValue([]);
   });
 
@@ -492,12 +494,19 @@ describe('ProgressService', () => {
   });
 
   describe('eligibilityFor', () => {
+    const chapterScore = (percent: number, chapterId = 'chapter-1') => ({
+      user_id: 'student-1',
+      score_correct: percent,
+      score_total: 100,
+      quiz: { chapter_id: chapterId },
+    });
+
     it('eligibility is false at 0% quizzes and true at 2 completed stories with mean quiz 70 using default rules', async () => {
       // Case 1: 0% quizzes (e.g. scoredChapters has 0%)
       prisma.readingProgress.count.mockResolvedValue(2);
       prisma.chapterProgress.count.mockResolvedValue(6);
-      prisma.chapterProgress.findMany.mockResolvedValue([
-        { quiz_best_percent: 0 },
+      prisma.quizAttempt.findMany.mockResolvedValue([
+        chapterScore(0),
       ]);
       prisma.gameEligibilityConfig.findFirst.mockResolvedValue(null);
 
@@ -513,8 +522,8 @@ describe('ProgressService', () => {
       // Case 2: 2 completed stories with mean quiz 70%
       prisma.readingProgress.count.mockResolvedValue(2);
       prisma.chapterProgress.count.mockResolvedValue(5);
-      prisma.chapterProgress.findMany.mockResolvedValue([
-        { quiz_best_percent: 70 },
+      prisma.quizAttempt.findMany.mockResolvedValue([
+        chapterScore(70),
       ]);
 
       const resEligible = await service.eligibilityFor('student-1');
@@ -533,7 +542,7 @@ describe('ProgressService', () => {
     it('eligibility is false when no quizzes taken (mean 0)', async () => {
       prisma.readingProgress.count.mockResolvedValue(5);
       prisma.chapterProgress.count.mockResolvedValue(10);
-      prisma.chapterProgress.findMany.mockResolvedValue([]);
+      prisma.quizAttempt.findMany.mockResolvedValue([]);
       prisma.gameEligibilityConfig.findFirst.mockResolvedValue(null);
 
       const res = await service.eligibilityFor('student-1');
@@ -544,9 +553,10 @@ describe('ProgressService', () => {
     it('eligibility is true at 6 completed chapters and mean quiz >= 70% even with < 2 stories', async () => {
       prisma.readingProgress.count.mockResolvedValue(1);
       prisma.chapterProgress.count.mockResolvedValue(6);
-      prisma.chapterProgress.findMany.mockResolvedValue([
-        { quiz_best_percent: 80 },
-        { quiz_best_percent: 60 },
+      prisma.quizAttempt.findMany.mockResolvedValue([
+        chapterScore(80),
+        chapterScore(40),
+        chapterScore(60, 'chapter-2'),
       ]);
       prisma.gameEligibilityConfig.findFirst.mockResolvedValue(null);
 
@@ -560,8 +570,8 @@ describe('ProgressService', () => {
     it('respects custom GameEligibilityConfig if configured', async () => {
       prisma.readingProgress.count.mockResolvedValue(2);
       prisma.chapterProgress.count.mockResolvedValue(6);
-      prisma.chapterProgress.findMany.mockResolvedValue([
-        { quiz_best_percent: 75 },
+      prisma.quizAttempt.findMany.mockResolvedValue([
+        chapterScore(75),
       ]);
       prisma.gameEligibilityConfig.findFirst.mockResolvedValue({
         required_stories: 3,

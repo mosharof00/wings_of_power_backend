@@ -3,13 +3,19 @@ import {
   JoinRequestStatus,
   PointsSource,
   PublishStatus,
+  QuizAttemptStatus,
+  QuizKind,
   RenewalRequestStatus,
   ReportStatus,
   Role,
   UserStatus,
 } from 'prisma/generated/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { eligibilityFor } from '../progress/progress.service';
+import {
+  averageQuizPercent,
+  chapterQuizAttempts,
+  eligibilityFor,
+} from '../progress/progress.service';
 
 export interface WeekBucket {
   day: 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri';
@@ -88,6 +94,7 @@ export class DashboardsService {
         reports: 0,
         pointsAwarded: 0,
         points: 0,
+        quizAverage: 0,
       }));
 
       return {
@@ -272,34 +279,38 @@ export class DashboardsService {
     const weekBuckets = getMonFriWeek(referenceDate);
     const weekChart = await Promise.all(
       weekBuckets.map(async (bucket) => {
-        const [dayReportsCount, dayPointsSum] = await Promise.all([
-          this.prisma.safeSpaceReport.count({
-            where: {
-              ...reportsWhere,
-              created_at: {
-                gte: bucket.start,
-                lt: bucket.end,
+        const [dayReportsCount, dayPointsSum, quizAttempts] = await Promise.all(
+          [
+            this.prisma.safeSpaceReport.count({
+              where: {
+                ...reportsWhere,
+                created_at: {
+                  gte: bucket.start,
+                  lt: bucket.end,
+                },
               },
-            },
-          }),
-          studentUserIds.length > 0
-            ? this.prisma.pointsLedger.aggregate({
-                where: {
-                  user_id: { in: studentUserIds },
-                  source: {
-                    in: [PointsSource.TEACHER_AWARD, PointsSource.STORY_QUIZ],
+            }),
+            studentUserIds.length > 0
+              ? this.prisma.pointsLedger.aggregate({
+                  where: {
+                    user_id: { in: studentUserIds },
+                    source: {
+                      in: [PointsSource.TEACHER_AWARD, PointsSource.STORY_QUIZ],
+                    },
+                    created_at: {
+                      gte: bucket.start,
+                      lt: bucket.end,
+                    },
                   },
-                  created_at: {
-                    gte: bucket.start,
-                    lt: bucket.end,
-                  },
-                },
-                _sum: {
-                  amount: true,
-                },
-              })
-            : { _sum: { amount: 0 } },
-        ]);
+                  _sum: { amount: true },
+                })
+              : { _sum: { amount: 0 } },
+            chapterQuizAttempts(this.prisma, studentUserIds, {
+              gte: bucket.start,
+              lt: bucket.end,
+            }),
+          ],
+        );
 
         const pointsAwarded = dayPointsSum._sum?.amount ?? 0;
 
@@ -310,6 +321,13 @@ export class DashboardsService {
           reports: dayReportsCount,
           pointsAwarded,
           points: pointsAwarded,
+          quizAverage:
+            averageQuizPercent(
+              quizAttempts.map(
+                (attempt) =>
+                  (100 * attempt.score_correct) / attempt.score_total,
+              ),
+            ) ?? 0,
         };
       }),
     );
@@ -564,6 +582,40 @@ export class DashboardsService {
       readingHours: 0,
       listeningHours: 0,
     }));
+    const activeStudent = {
+      school_id: schoolId,
+      role: Role.STUDENT,
+      status: UserStatus.ACTIVE,
+      deleted_at: null,
+    };
+    const publishedStory = {
+      school_id: schoolId,
+      status: PublishStatus.PUBLISHED,
+      deleted_at: null,
+    };
+    const readingScope = { user: activeStudent, story: publishedStory };
+    const quizScope = {
+      user: activeStudent,
+      quiz: {
+        kind: QuizKind.CHAPTER,
+        chapter: { deleted_at: null, story: publishedStory },
+      },
+    };
+    const [startedStories, completedStories, startedQuizzes, completedQuizzes] =
+      await Promise.all([
+        this.prisma.readingProgress.count({ where: readingScope }),
+        this.prisma.readingProgress.count({
+          where: { ...readingScope, completed_at: { not: null } },
+        }),
+        this.prisma.quizAttempt.count({ where: quizScope }),
+        this.prisma.quizAttempt.count({
+          where: {
+            ...quizScope,
+            status: QuizAttemptStatus.COMPLETED,
+            completed_at: { not: null },
+          },
+        }),
+      ]);
 
     return {
       success: true,
@@ -575,8 +627,14 @@ export class DashboardsService {
         totalClasses: classesCount,
         pendingStudents,
         week,
-        storyCompletionPercent: 0,
-        quizCompletionPercent: 0,
+        storyCompletionPercent:
+          startedStories > 0
+            ? Math.round((100 * completedStories) / startedStories)
+            : null,
+        quizCompletionPercent:
+          startedQuizzes > 0
+            ? Math.round((100 * completedQuizzes) / startedQuizzes)
+            : null,
         stories: {
           published: publishedStoryCount,
           drafts: draftStoryCount,
