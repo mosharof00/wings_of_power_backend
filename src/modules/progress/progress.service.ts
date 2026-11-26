@@ -16,6 +16,33 @@ const LISTEN_PROGRESS_PCT = Number(process.env.LISTEN_PROGRESS_PCT ?? 80);
 
 let activePrismaService: PrismaService | null = null;
 
+export async function publishedChapterCompletion(
+  prisma: PrismaService,
+  studentId: string,
+  schoolId: string | null,
+) {
+  if (!schoolId) return { chaptersCompleted: 0, overallPercent: 0 };
+
+  const chapter = {
+    deleted_at: null,
+    story: {
+      school_id: schoolId,
+      deleted_at: null,
+      status: PublishStatus.PUBLISHED,
+    },
+  };
+  const [chaptersCompleted, total] = await Promise.all([
+    prisma.chapterProgress.count({
+      where: { user_id: studentId, completed_at: { not: null }, chapter },
+    }),
+    prisma.chapter.count({ where: chapter }),
+  ]);
+  return {
+    chaptersCompleted,
+    overallPercent: total ? Math.round((chaptersCompleted / total) * 100) : 0,
+  };
+}
+
 export function chapterQuizAttempts(
   prisma: PrismaService,
   studentIds: string[],
@@ -551,20 +578,8 @@ export class ProgressService {
       (p) => p.completed_at !== null,
     ).length;
 
-    const chaptersCompleted = await this.prisma.chapterProgress.count({
-      where: {
-        user_id: userId,
-        completed_at: { not: null },
-        chapter: {
-          deleted_at: null,
-          story: {
-            deleted_at: null,
-            status: PublishStatus.PUBLISHED,
-            ...(user.school_id ? { school_id: user.school_id } : {}),
-          },
-        },
-      },
-    });
+    const { chaptersCompleted, overallPercent } =
+      await publishedChapterCompletion(this.prisma, userId, user.school_id);
 
     const stories = await Promise.all(
       progressRows.map(async (row) => {
@@ -608,6 +623,7 @@ export class ProgressService {
           storiesStarted,
           storiesCompleted,
           chaptersCompleted,
+          overallPercent,
         },
         stories,
         items: stories,
@@ -652,7 +668,9 @@ export class ProgressService {
           title: continueProgress.story.title,
           synopsis: continueProgress.story.synopsis,
           coverUrl: continueProgress.story.cover_url,
-          category: continueProgress.story.theme?.slug ?? continueProgress.story.theme_id,
+          category:
+            continueProgress.story.theme?.slug ??
+            continueProgress.story.theme_id,
           themeId: continueProgress.story.theme_id,
           ageGroup: continueProgress.story.age_group,
           chapterCount: continueProgress.story.chapter_count,
@@ -748,6 +766,7 @@ export class ProgressService {
       success: true,
       data: {
         greetingName,
+        avatarUrl: user.avatar_url,
         pointsTotal,
         points: pointsTotal,
         continueStory,

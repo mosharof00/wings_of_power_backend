@@ -12,12 +12,17 @@ describe('ProfileService', () => {
     classMembership: { count: jest.fn(), findFirst: jest.fn() },
     pointsLedger: { aggregate: jest.fn() },
     studentBadge: { count: jest.fn() },
+    chapter: { count: jest.fn() },
+    chapterProgress: { count: jest.fn() },
   };
   const service = new ProfileService(prisma as unknown as PrismaService);
 
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.user.findFirst.mockReset();
+    prisma.pointsLedger.aggregate.mockResolvedValue({ _sum: { amount: 75 } });
+    prisma.studentBadge.count.mockResolvedValue(2);
+    prisma.classMembership.findFirst.mockResolvedValue(null);
   });
 
   it('student nickname patch updates only the signed-in user', async () => {
@@ -28,10 +33,34 @@ describe('ProfileService', () => {
     prisma.user.update.mockResolvedValue({
       id: 'student-1',
       nickname: 'Ace',
-      avatar_url: null,
+      avatar_url: 'assets/images/avatar_02.png',
+      age: 9,
+      school_id: 'school-1',
     });
+    prisma.classMembership.findFirst.mockResolvedValue({
+      class: { id: 'class-1', name: 'Room 10' },
+    });
+    prisma.chapter.count.mockResolvedValue(8);
+    prisma.chapterProgress.count.mockResolvedValue(3);
 
-    await service.updateStudentProfile('student-1', { nickname: 'Ace' });
+    const result = await service.updateStudentProfile('student-1', {
+      nickname: 'Ace',
+    });
+    expect(result.data).toMatchObject({
+      nickname: 'Ace',
+      avatarUrl: 'assets/images/avatar_02.png',
+      points: 75,
+      badges: 2,
+      age: 9,
+      progressPercent: 38,
+      class: { id: 'class-1', name: 'Room 10' },
+    });
+    expect(prisma.chapter.count).toHaveBeenCalledWith({
+      where: {
+        deleted_at: null,
+        story: { school_id: 'school-1', deleted_at: null, status: 'PUBLISHED' },
+      },
+    });
 
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: 'student-1' },

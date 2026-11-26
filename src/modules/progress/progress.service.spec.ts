@@ -505,9 +505,7 @@ describe('ProgressService', () => {
       // Case 1: 0% quizzes (e.g. scoredChapters has 0%)
       prisma.readingProgress.count.mockResolvedValue(2);
       prisma.chapterProgress.count.mockResolvedValue(6);
-      prisma.quizAttempt.findMany.mockResolvedValue([
-        chapterScore(0),
-      ]);
+      prisma.quizAttempt.findMany.mockResolvedValue([chapterScore(0)]);
       prisma.gameEligibilityConfig.findFirst.mockResolvedValue(null);
 
       const resZeroQuiz = await service.eligibilityFor('student-1');
@@ -522,9 +520,7 @@ describe('ProgressService', () => {
       // Case 2: 2 completed stories with mean quiz 70%
       prisma.readingProgress.count.mockResolvedValue(2);
       prisma.chapterProgress.count.mockResolvedValue(5);
-      prisma.quizAttempt.findMany.mockResolvedValue([
-        chapterScore(70),
-      ]);
+      prisma.quizAttempt.findMany.mockResolvedValue([chapterScore(70)]);
 
       const resEligible = await service.eligibilityFor('student-1');
       expect(resEligible.eligible).toBe(true);
@@ -570,9 +566,7 @@ describe('ProgressService', () => {
     it('respects custom GameEligibilityConfig if configured', async () => {
       prisma.readingProgress.count.mockResolvedValue(2);
       prisma.chapterProgress.count.mockResolvedValue(6);
-      prisma.quizAttempt.findMany.mockResolvedValue([
-        chapterScore(75),
-      ]);
+      prisma.quizAttempt.findMany.mockResolvedValue([chapterScore(75)]);
       prisma.gameEligibilityConfig.findFirst.mockResolvedValue({
         required_stories: 3,
         required_chapters: 10,
@@ -591,6 +585,7 @@ describe('ProgressService', () => {
 
   describe('getReadingProgress', () => {
     it('returns summary and stories correctly', async () => {
+      prisma.chapter.count.mockResolvedValue(8);
       prisma.readingProgress.findMany.mockResolvedValue([
         {
           id: 'rp-1',
@@ -619,6 +614,7 @@ describe('ProgressService', () => {
         storiesStarted: 1,
         storiesCompleted: 1,
         chaptersCompleted: 3,
+        overallPercent: 38,
       });
       expect(res.data.stories).toHaveLength(1);
       expect(res.data.stories[0]).toMatchObject({

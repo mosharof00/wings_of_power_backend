@@ -1,6 +1,12 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { JoinRequestStatus, Prisma, Role } from 'prisma/generated/client';
+import {
+  JoinRequestStatus,
+  Prisma,
+  Role,
+  type User,
+} from 'prisma/generated/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { publishedChapterCompletion } from '../progress/progress.service';
 import {
   SettingsDto,
   UpdateStudentProfileDto,
@@ -62,7 +68,11 @@ export class ProfileService {
 
   async studentProfile(userId: string) {
     const user = await this.self(userId, Role.STUDENT);
-    const [points, badges, membership] = await Promise.all([
+    return { success: true, data: await this.formatStudentProfile(user) };
+  }
+
+  private async formatStudentProfile(user: User) {
+    const [points, badges, membership, completion] = await Promise.all([
       this.prisma.pointsLedger.aggregate({
         where: { user_id: user.id },
         _sum: { amount: true },
@@ -73,21 +83,21 @@ export class ProfileService {
         include: { class: true },
         orderBy: { updated_at: 'desc' },
       }),
+      publishedChapterCompletion(this.prisma, user.id, user.school_id),
     ]);
     return {
-      success: true,
-      data: {
-        id: user.id,
-        nickname: user.nickname,
-        realName: user.real_name,
-        avatarUrl: user.avatar_url,
-        status: user.status,
-        points: points._sum.amount ?? 0,
-        badges,
-        class: membership?.class
-          ? { id: membership.class.id, name: membership.class.name }
-          : null,
-      },
+      id: user.id,
+      nickname: user.nickname || user.username || '',
+      realName: user.real_name,
+      avatarUrl: user.avatar_url,
+      age: user.age,
+      status: user.status,
+      points: points._sum.amount ?? 0,
+      badges,
+      progressPercent: completion.overallPercent,
+      class: membership?.class
+        ? { id: membership.class.id, name: membership.class.name }
+        : null,
     };
   }
 
@@ -103,11 +113,7 @@ export class ProfileService {
     return {
       success: true,
       message: 'Profile updated',
-      data: {
-        id: updated.id,
-        nickname: updated.nickname,
-        avatarUrl: updated.avatar_url,
-      },
+      data: await this.formatStudentProfile(updated),
     };
   }
 
