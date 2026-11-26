@@ -1,6 +1,6 @@
 # T-BE-GAME-009 — Public 1v1 queue
 
-**Status:** Not started
+**Status:** Implemented. Two-phone lobby and live match QA passed.
 **Pair:** `wings_of_power_app/docs/game/tasks/T-GAME-009.md`
 **Phase:** 2
 **Depends on:** T-BE-GAME-008
@@ -51,4 +51,5 @@
 
 ## Notes
 
--
+- Both eligible simulator accounts received the same ready room, countdown, warm-up question, and shot event. A live Socket.IO playthrough covered reconnect, timeouts, steals, all 14 authored questions, and admin results.
+- Queue listeners attach before the authenticated join. Public rooms follow D65. A ready player can start the countdown, and the server starts it after 20 seconds.

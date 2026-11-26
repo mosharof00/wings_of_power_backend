@@ -11,6 +11,9 @@ describe('MatchmakingService', () => {
 
   beforeEach(async () => {
     prisma = {
+      $transaction: jest.fn((action: (tx: typeof prisma) => unknown) =>
+        action(prisma),
+      ),
       user: {
         findMany: jest.fn(),
       },
@@ -21,6 +24,7 @@ describe('MatchmakingService', () => {
         create: jest.fn(),
       },
       matchmakingTicket: {
+        findMany: jest.fn().mockResolvedValue([]),
         updateMany: jest.fn(),
       },
     };
@@ -51,8 +55,8 @@ describe('MatchmakingService', () => {
       expect(service.getRequiredPlayerCount(MatchMode.FIVE_V_FIVE)).toBe(10);
     });
 
-    it('returns 1 for SINGLE', () => {
-      expect(service.getRequiredPlayerCount(MatchMode.SINGLE)).toBe(1);
+    it('requires two players for a queued SINGLE fixture', () => {
+      expect(service.getRequiredPlayerCount(MatchMode.SINGLE)).toBe(2);
     });
   });
 
@@ -164,8 +168,7 @@ describe('MatchmakingService', () => {
         data: {
           school_id: 'school-1',
           mode: MatchMode.ONE_V_ONE,
-          phase: MatchPhase.COUNTDOWN,
-          started_at: expect.any(Date),
+          phase: MatchPhase.QUEUED,
           teams: {
             create: [
               {
@@ -189,6 +192,7 @@ describe('MatchmakingService', () => {
       expect(prisma.gameParticipant.create).toHaveBeenCalledTimes(2);
       expect(prisma.matchmakingTicket.updateMany).toHaveBeenCalledWith({
         where: {
+          status: TicketStatus.WAITING,
           id: { in: ['t-1', 't-2'] },
         },
         data: {

@@ -10,6 +10,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProgressService } from '../progress/progress.service';
 import { GameService } from './game.service';
+import { MatchmakingService } from './matchmaking.service';
 import { QueueService } from './queue.service';
 
 describe('GameService', () => {
@@ -18,7 +19,9 @@ describe('GameService', () => {
   let progressService: {
     eligibilityFor: jest.Mock;
   };
+  let matchmaking: { createPractice: jest.Mock };
   let prisma: {
+    gameShootout: { aggregate: jest.Mock };
     user: {
       findUnique: jest.Mock;
     };
@@ -92,7 +95,15 @@ describe('GameService', () => {
       }),
     };
 
+    matchmaking = {
+      createPractice: jest
+        .fn()
+        .mockResolvedValue({ matchId: 'match-1', ticketId: 'ticket-1' }),
+    };
     prisma = {
+      gameShootout: {
+        aggregate: jest.fn().mockResolvedValue({ _sum: { xp_awarded: 12 } }),
+      },
       user: {
         findUnique: jest.fn().mockResolvedValue(studentUser),
       },
@@ -189,6 +200,7 @@ describe('GameService', () => {
       prisma as unknown as PrismaService,
       progressService as unknown as ProgressService,
       queueService,
+      matchmaking as unknown as MatchmakingService,
     );
   });
 
@@ -197,6 +209,7 @@ describe('GameService', () => {
       const res = await service.getEligibility('student-1');
       expect(res.eligible).toBe(true);
       expect(res.progress.storiesCompleted).toBe(2);
+      expect(res.progress.basketballXp).toBe(12);
       expect(res.rules.requiredStories).toBe(2);
       expect(progressService.eligibilityFor).toHaveBeenCalledWith('student-1');
     });
@@ -291,29 +304,16 @@ describe('GameService', () => {
       );
     });
 
-    it('SINGLE response includes matchId and one participant', async () => {
+    it('SINGLE returns the match and ticket created by matchmaking', async () => {
       const res = await service.joinQueue('student-1', {
         mode: MatchMode.SINGLE,
       });
-
       expect(res.matchId).toBe('match-1');
       expect(res.ticketId).toBe('ticket-1');
-      expect(prisma.gameMatch.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            mode: MatchMode.SINGLE,
-            phase: MatchPhase.COUNTDOWN,
-          }),
-        }),
-      );
-      expect(prisma.gameParticipant.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            match_id: 'match-1',
-            user_id: 'student-1',
-            jersey_number: 1,
-          }),
-        }),
+      expect(matchmaking.createPractice).toHaveBeenCalledWith(
+        'student-1',
+        'school-1',
+        'hero-1',
       );
     });
 

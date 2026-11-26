@@ -26,17 +26,20 @@ export class GameError extends Error {
 }
 
 export interface PowerEffect {
-  type: 'removedOptions' | 'extraMs' | 'hint' | 'freeze';
+  type: 'removedOptions' | 'extraMs' | 'hint' | 'weights';
   value?: any;
 }
 
 export const POWER_EFFECT_MAP: Record<PowerCode, PowerEffect> = {
   [PowerCode.MELODY]: { type: 'extraMs', value: 10000 },
   [PowerCode.COLOR]: { type: 'extraMs', value: 10000 },
-  [PowerCode.LAB]: { type: 'removedOptions', value: [2, 3] },
-  [PowerCode.CHECKMATE]: { type: 'removedOptions', value: [1, 3] },
-  [PowerCode.NATURE]: { type: 'freeze', value: 5000 },
-  [PowerCode.PRISM]: { type: 'freeze', value: 5000 },
+  [PowerCode.LAB]: { type: 'removedOptions', value: 2 },
+  [PowerCode.CHECKMATE]: { type: 'removedOptions', value: 1 },
+  [PowerCode.NATURE]: {
+    type: 'hint',
+    value: 'Think about what helps living things grow or thrive.',
+  },
+  [PowerCode.PRISM]: { type: 'weights' },
   [PowerCode.HARMONY]: {
     type: 'hint',
     value: 'Harmony: Teammate advice enabled',
@@ -47,10 +50,18 @@ export const POWER_EFFECT_MAP: Record<PowerCode, PowerEffect> = {
   },
 };
 
+export const QUARTER_SIZES: Record<RoundType, number> = {
+  [RoundType.Q1_WARMUP]: 5,
+  [RoundType.Q2_DEFENSE]: 1,
+  [RoundType.Q3_HOBBY]: 5,
+  [RoundType.Q4_FINALS]: 3,
+};
+
 export interface RoundQuestionData {
   id?: string;
   prompt: string;
   options: string[];
+  storyText?: string;
   correctIndex?: number;
   roundType: RoundType;
 }
@@ -124,10 +135,14 @@ export class RoundService {
           xp: t.score_xp,
           kindness: t.score_kindness,
           baskets: t.score_baskets,
+          scoreVs: 3 * t.score_baskets,
         };
         return acc;
       },
-      {} as Record<string, { xp: number; kindness: number; baskets: number }>,
+      {} as Record<
+        string,
+        { xp: number; kindness: number; baskets: number; scoreVs: number }
+      >,
     );
   }
 
@@ -176,13 +191,14 @@ export class RoundService {
       options,
       correctIndex,
       roundType: q.round_type,
+      storyText:
+        typeof q.meta_json?.storyText === 'string'
+          ? q.meta_json.storyText
+          : undefined,
     };
   }
 
-  async getQuestionForRound(
-    matchId: string,
-    roundType: RoundType,
-  ): Promise<RoundQuestionData> {
+  private async resolvePackId(matchId: string): Promise<string | null> {
     const match = await this.prisma.gameMatch.findUnique({
       where: { id: matchId },
       include: {
@@ -191,6 +207,8 @@ export class RoundService {
             user: {
               include: {
                 memberships: {
+                  where: { status: 'APPROVED' },
+                  orderBy: { created_at: 'desc' },
                   include: { class: true },
                 },
               },
@@ -201,7 +219,7 @@ export class RoundService {
     });
 
     if (!match) {
-      return FALLBACK_QUESTIONS[roundType];
+      return null;
     }
 
     let packId = match.pack_id;
@@ -239,24 +257,61 @@ export class RoundService {
 
       if (pack) {
         packId = pack.id;
+        await this.prisma.gameMatch.update({
+          where: { id: matchId },
+          data: { pack_id: packId },
+        });
       }
     }
 
-    if (packId) {
-      const q = await this.prisma.gamePackQuestion.findFirst({
-        where: {
-          pack_id: packId,
-          round_type: roundType,
-        },
-        orderBy: { sort_order: 'asc' },
-      });
+    return packId;
+  }
 
-      if (q) {
-        return this.parsePackQuestion(q);
-      }
+  async getQuestionForRound(
+    matchId: string,
+    roundType: RoundType,
+    index = 1,
+  ): Promise<RoundQuestionData> {
+    const packId = await this.resolvePackId(matchId);
+    if (packId) {
+      const question = await this.prisma.gamePackQuestion.findFirst({
+        where: { pack_id: packId, round_type: roundType },
+        orderBy: [{ sort_order: 'asc' }, { id: 'asc' }],
+        skip: index - 1,
+      });
+      if (question) return this.parsePackQuestion(question);
     }
 
     return FALLBACK_QUESTIONS[roundType];
+  }
+
+  async getQuarterSizes(matchId: string): Promise<Record<RoundType, number>> {
+    const packId = await this.resolvePackId(matchId);
+    const counts = packId
+      ? await this.prisma.gamePackQuestion.groupBy({
+          by: ['round_type'],
+          where: { pack_id: packId },
+          _count: { _all: true },
+        })
+      : [];
+
+    return {
+      [RoundType.Q1_WARMUP]: this.getQuarterSize(counts, RoundType.Q1_WARMUP),
+      [RoundType.Q2_DEFENSE]: this.getQuarterSize(counts, RoundType.Q2_DEFENSE),
+      [RoundType.Q3_HOBBY]: this.getQuarterSize(counts, RoundType.Q3_HOBBY),
+      [RoundType.Q4_FINALS]: this.getQuarterSize(counts, RoundType.Q4_FINALS),
+    };
+  }
+
+  private getQuarterSize(
+    counts: { round_type: RoundType; _count: { _all: number } }[],
+    roundType: RoundType,
+  ): number {
+    const available = counts.find((count) => count.round_type === roundType);
+    return Math.max(
+      1,
+      Math.min(available?._count._all ?? 0, QUARTER_SIZES[roundType]),
+    );
   }
 
   toClientQuestion(
@@ -270,6 +325,7 @@ export class RoundService {
       roundId,
       prompt: question.prompt,
       options: question.options,
+      storySnippet: question.storyText,
       roundType: question.roundType,
       index,
       total,
@@ -277,43 +333,46 @@ export class RoundService {
     };
   }
 
-  async getSnapshotQuestion(round: any) {
-    if (round.question) {
-      const parsed = this.parsePackQuestion(round.question);
-      return {
-        prompt: parsed.prompt,
-        options: parsed.options,
-      };
-    }
-    const fallback = FALLBACK_QUESTIONS[round.round_type as RoundType];
-    return {
-      prompt: fallback?.prompt ?? '',
-      options: fallback?.options ?? [],
-    };
+  getSnapshotQuestion(
+    round: {
+      id: string;
+      question?: unknown;
+      round_type: RoundType;
+      deadline_at: Date | null;
+    },
+    index = 1,
+    total = 1,
+  ) {
+    const question = round.question
+      ? this.parsePackQuestion(round.question)
+      : FALLBACK_QUESTIONS[round.round_type];
+    return this.toClientQuestion(
+      round.id,
+      question,
+      index,
+      total,
+      round.deadline_at?.toISOString() ?? new Date().toISOString(),
+    );
   }
 
-  async createRound(matchId: string, roundType: RoundType, number: number) {
-    const question = await this.getQuestionForRound(matchId, roundType);
+  questionTiming(roundType: RoundType) {
+    return roundType === RoundType.Q2_DEFENSE
+      ? { phase: GameRoundPhase.ANSWER, durationMs: 60000 }
+      : { phase: GameRoundPhase.BUZZ, durationMs: 10000 };
+  }
 
-    let phase: GameRoundPhase = GameRoundPhase.BUZZ;
-    let durationMs = 10000;
-
-    if (roundType === RoundType.Q1_WARMUP) {
-      phase = GameRoundPhase.BUZZ;
-      durationMs = 10000;
-    } else if (roundType === RoundType.Q2_DEFENSE) {
-      phase = GameRoundPhase.ANSWER;
-      durationMs = 60000;
-    } else if (roundType === RoundType.Q3_HOBBY) {
-      phase = GameRoundPhase.BUZZ;
-      durationMs = 10000;
-    } else if (roundType === RoundType.Q4_FINALS) {
-      phase = GameRoundPhase.VOTE;
-      durationMs = 20000;
-    }
-
+  async createRound(
+    matchId: string,
+    roundType: RoundType,
+    number: number,
+    index = 1,
+    showIntro = false,
+  ) {
+    const question = await this.getQuestionForRound(matchId, roundType, index);
+    const timing = this.questionTiming(roundType);
+    const phase = showIntro ? GameRoundPhase.INTRO : timing.phase;
+    const durationMs = showIntro ? 15000 : timing.durationMs;
     const deadlineAt = new Date(Date.now() + durationMs);
-
     const round = await this.prisma.gameRound.create({
       data: {
         match_id: matchId,
@@ -324,9 +383,7 @@ export class RoundService {
         deadline_at: deadlineAt,
       },
       include: {
-        match: {
-          include: { teams: true, participants: true },
-        },
+        match: { include: { teams: true, participants: true } },
       },
     });
 
@@ -365,25 +422,36 @@ export class RoundService {
     const participant = round.match.participants.find(
       (p) => p.id === participantId,
     );
-    if (!participant) {
-      throw new GameError('FORBIDDEN', 'Participant not in this match');
+    if (
+      !participant ||
+      participant.left_at ||
+      participant.is_connected === false
+    ) {
+      throw new GameError('FORBIDDEN', 'Participant cannot buzz');
     }
 
-    const newDeadline = new Date(Date.now() + 10000);
-    await this.prisma.gameRound.update({
-      where: { id: roundId },
+    const isFinal = round.round_type === RoundType.Q4_FINALS;
+    const durationMs = isFinal ? 20000 : 10000;
+    const newDeadline = new Date(Date.now() + durationMs);
+    const claimed = await this.prisma.gameRound.updateMany({
+      where: { id: roundId, phase: GameRoundPhase.BUZZ, buzz_winner_id: null },
       data: {
         buzz_winner_id: participantId,
-        phase: GameRoundPhase.ANSWER,
+        phase: isFinal ? GameRoundPhase.VOTE : GameRoundPhase.ANSWER,
         deadline_at: newDeadline,
       },
     });
+
+    if (!claimed.count) {
+      throw new GameError('FORBIDDEN', 'Another player buzzed first');
+    }
 
     return {
       roundId,
       participantId,
       userId: participant.user_id,
       deadlineAt: newDeadline.toISOString(),
+      durationMs,
     };
   }
 
@@ -475,6 +543,13 @@ export class RoundService {
       throw new GameError('NOT_FOUND', 'Round not found');
     }
 
+    if (
+      round.round_type !== RoundType.Q2_DEFENSE ||
+      round.phase !== GameRoundPhase.ANSWER
+    ) {
+      throw new GameError('INVALID_PHASE', 'The defense prompt is closed');
+    }
+
     if (round.deadline_at && new Date() > round.deadline_at) {
       throw new GameError('TOO_LATE', 'Answer deadline expired');
     }
@@ -486,71 +561,62 @@ export class RoundService {
       throw new GameError('FORBIDDEN', 'Participant not found');
     }
 
-    const isNonEmpty =
-      typeof freeText === 'string' && freeText.trim().length > 0;
+    const answer =
+      typeof freeText === 'string' ? freeText.trim().slice(0, 4000) : '';
+    const isNonEmpty = answer.length > 0;
+    const kindnessDelta = await this.prisma.$transaction(async (tx) => {
+      const existingAnswer = await tx.gameAnswer.findFirst({
+        where: { round_id: roundId, participant_id: participantId },
+      });
+      if (existingAnswer)
+        throw new GameError('FORBIDDEN', 'Defense answer already submitted');
 
-    await this.prisma.gameAnswer.create({
-      data: {
-        round_id: roundId,
-        participant_id: participantId,
-        free_text: freeText ?? null,
-        is_correct: isNonEmpty,
-        submitted_at: new Date(),
-      },
-    });
-
-    let kindnessDelta = 0;
-    if (isNonEmpty && participant.user_id) {
-      const existingLedger = await this.prisma.pointsLedger.findFirst({
-        where: {
-          user_id: participant.user_id,
-          ref_type: 'GameRound',
-          ref_id: roundId,
-          source: PointsSource.GAME_KINDNESS,
+      await tx.gameAnswer.create({
+        data: {
+          round_id: roundId,
+          participant_id: participantId,
+          free_text: answer || null,
+          is_correct: isNonEmpty,
+          submitted_at: new Date(),
         },
       });
 
-      if (!existingLedger) {
-        let kindnessAmount = 50;
-        const rule = await this.prisma.pointRule.findFirst({
-          where: {
-            school_id: round.match.school_id,
-            key: 'KINDNESS_ROUND',
-          },
-        });
-        if (rule && typeof rule.value_int === 'number') {
-          kindnessAmount = rule.value_int;
-        }
+      if (!isNonEmpty || !participant.user_id) return 0;
+      const reference = {
+        user_id: participant.user_id,
+        source: PointsSource.GAME_KINDNESS,
+        ref_type: 'GameRound',
+        ref_id: roundId,
+      };
+      const priorAward = await tx.pointsLedger.findFirst({ where: reference });
+      if (priorAward) return 0;
 
-        await this.prisma.pointsLedger.create({
-          data: {
-            user_id: participant.user_id,
-            source: PointsSource.GAME_KINDNESS,
-            amount: kindnessAmount,
-            kindness_amount: kindnessAmount,
-            label: 'Kindness Round',
-            ref_type: 'GameRound',
-            ref_id: roundId,
-          },
-        });
-
-        await this.prisma.gameTeam.update({
-          where: { id: participant.team_id },
-          data: {
-            score_kindness: { increment: kindnessAmount },
-          },
-        });
-
-        kindnessDelta = kindnessAmount;
-      }
-    }
+      const rule = await tx.pointRule.findFirst({
+        where: { school_id: round.match.school_id, key: 'KINDNESS_ROUND' },
+      });
+      const amount = rule?.value_int ?? 50;
+      await tx.pointsLedger.create({
+        data: {
+          ...reference,
+          amount,
+          kindness_amount: amount,
+          label: 'Kindness Round',
+        },
+      });
+      await tx.gameTeam.update({
+        where: { id: participant.team_id },
+        data: { score_kindness: { increment: amount } },
+      });
+      return amount;
+    });
 
     const scores = await this.getTeamScores(round.match_id);
 
     return {
       roundId,
       userId: participant.user_id,
-      correct: true,
+      correct: isNonEmpty,
+      participantId,
       scores,
       kindnessDelta,
     };
@@ -559,6 +625,7 @@ export class RoundService {
   async usePower(roundId: string, participantId: string, powerCode: PowerCode) {
     const participant = await this.prisma.gameParticipant.findUnique({
       where: { id: participantId },
+      include: { hero: { select: { power_code: true } } },
     });
 
     if (!participant) {
@@ -572,6 +639,7 @@ export class RoundService {
     const round = await this.prisma.gameRound.findUnique({
       where: { id: roundId },
       include: {
+        question: true,
         match: {
           include: {
             participants: true,
@@ -584,6 +652,27 @@ export class RoundService {
       throw new GameError('NOT_FOUND', 'Round not found');
     }
 
+    if (
+      round.match_id !== participant.match_id ||
+      round.round_type !== RoundType.Q3_HOBBY ||
+      round.phase !== GameRoundPhase.ANSWER ||
+      round.buzz_winner_id !== participantId ||
+      (round.deadline_at && round.deadline_at.getTime() <= Date.now())
+    ) {
+      throw new GameError(
+        'INVALID_PHASE',
+        'Use a Power Wing while answering a Hobby Hoops question',
+      );
+    }
+    if (
+      !Object.values(PowerCode).includes(powerCode) ||
+      (participant.hero && participant.hero.power_code !== powerCode)
+    ) {
+      throw new GameError(
+        'FORBIDDEN',
+        'This power belongs to a different hero',
+      );
+    }
     if (
       powerCode === PowerCode.HARMONY &&
       (round.match?.mode === MatchMode.ONE_V_ONE ||
@@ -601,14 +690,54 @@ export class RoundService {
       data: { power_used: true },
     });
 
-    const effect = POWER_EFFECT_MAP[powerCode] || {
-      type: 'hint',
-      value: 'Power activated',
-    };
+    const configuredEffect = POWER_EFFECT_MAP[powerCode];
+    const question = round.question
+      ? this.parsePackQuestion(round.question)
+      : FALLBACK_QUESTIONS[RoundType.Q3_HOBBY];
+    let effect: PowerEffect = configuredEffect;
+    if (configuredEffect.type === 'removedOptions') {
+      const wrongOptions = question.options
+        .map((_, index) => index)
+        .filter((index) => index !== question.correctIndex);
+      effect = {
+        type: 'removedOptions',
+        value: wrongOptions.slice(
+          0,
+          Math.min(
+            configuredEffect.value,
+            Math.max(0, question.options.length - 2),
+          ),
+        ),
+      };
+    } else if (configuredEffect.type === 'weights') {
+      effect = {
+        type: 'weights',
+        value: question.options.map((_, index) =>
+          index === question.correctIndex
+            ? 60
+            : Math.round(40 / Math.max(1, question.options.length - 1)),
+        ),
+      };
+    } else if (configuredEffect.type === 'hint' && round.question) {
+      const metadata = round.question.meta_json;
+      const hint =
+        metadata && typeof metadata === 'object' && 'hint' in metadata
+          ? metadata.hint
+          : undefined;
+      if (
+        typeof hint === 'string' &&
+        hint.trim() &&
+        powerCode !== PowerCode.HARMONY
+      ) {
+        effect = { type: 'hint', value: hint.trim() };
+      }
+    }
 
+    let deadlineAt: string | undefined;
     if (effect.type === 'extraMs' && round.deadline_at) {
       const extraMs = effect.value || 10000;
       const newDeadline = new Date(round.deadline_at.getTime() + extraMs);
+      deadlineAt = newDeadline.toISOString();
       await this.prisma.gameRound.update({
         where: { id: roundId },
         data: { deadline_at: newDeadline },
@@ -619,6 +748,8 @@ export class RoundService {
       roundId,
       userId: participant.user_id,
       powerCode,
+      participantId,
+      deadlineAt,
       effect,
     };
   }
@@ -732,6 +863,7 @@ export class RoundService {
         match: {
           include: { participants: true },
         },
+        question: true,
       },
     });
 
@@ -754,7 +886,20 @@ export class RoundService {
       throw new GameError('FORBIDDEN', 'Participant not in this match');
     }
 
-    if (typeof optionIndex !== 'number' || optionIndex < 0) {
+    const buzzer = round.match.participants.find(
+      (seat) => seat.id === round.buzz_winner_id,
+    );
+    if (!buzzer || buzzer.team_id !== participant.team_id) {
+      throw new GameError('FORBIDDEN', 'Only the team that buzzed can vote');
+    }
+    const question = round.question
+      ? this.parsePackQuestion(round.question)
+      : FALLBACK_QUESTIONS[RoundType.Q4_FINALS];
+    if (
+      !Number.isInteger(optionIndex) ||
+      optionIndex < 0 ||
+      optionIndex >= question.options.length
+    ) {
       throw new GameError('FORBIDDEN', 'Invalid option index');
     }
 
@@ -1119,7 +1264,7 @@ export class RoundService {
       roundId,
       shooterParticipantId,
       deadlineAt: deadlineAt.toISOString(),
-      multiplier: 1,
+      multiplier: round.round_type === RoundType.Q4_FINALS ? 3 : 2,
     };
   }
 
@@ -1160,27 +1305,39 @@ export class RoundService {
       throw new GameError('FORBIDDEN', 'Participant not found');
     }
 
-    const xp = made ? 3 : 0;
+    const multiplier = round.round_type === RoundType.Q4_FINALS ? 3 : 2;
+    const xp = made ? multiplier : 0;
 
-    const shootout = await this.prisma.gameShootout.create({
-      data: {
-        round_id: roundId,
-        shooter_participant_id: participantId,
-        made,
-        xp_awarded: xp,
-        multiplier: 1,
-      },
-    });
+    const shootout = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.gameRound.updateMany({
+        where: { id: roundId, phase: GameRoundPhase.SHOOTOUT },
+        data: { phase: GameRoundPhase.COMPLETE },
+      });
+      if (!claimed.count) {
+        throw new GameError('FORBIDDEN', 'Shot already resolved');
+      }
 
-    if (made) {
-      await this.prisma.gameTeam.update({
-        where: { id: participant.team_id },
+      const shot = await tx.gameShootout.create({
         data: {
-          score_xp: { increment: xp },
-          score_baskets: { increment: 1 },
+          round_id: roundId,
+          shooter_participant_id: participantId,
+          made,
+          xp_awarded: xp,
+          multiplier,
         },
       });
-    }
+
+      if (made) {
+        await tx.gameTeam.update({
+          where: { id: participant.team_id },
+          data: {
+            score_xp: { increment: xp },
+            score_baskets: { increment: 1 },
+          },
+        });
+      }
+      return shot;
+    });
 
     const teamScores = await this.getTeamScores(round.match_id);
 
@@ -1207,7 +1364,7 @@ export class RoundService {
     };
   }
 
-  async finishMatch(matchId: string) {
+  async finishMatch(matchId: string, forfeitWinner?: string | null) {
     const match = await this.prisma.gameMatch.findUnique({
       where: { id: matchId },
       include: { teams: true },
@@ -1220,11 +1377,15 @@ export class RoundService {
     const teams = match.teams;
     let winnerTeamId: string | null = null;
 
-    if (teams.length === 1) {
+    if (forfeitWinner !== undefined) {
+      winnerTeamId = forfeitWinner;
+    } else if (teams.length === 1) {
       winnerTeamId = teams[0].id;
     } else if (teams.length >= 2) {
-      const sorted = [...teams].sort((a, b) => b.score_xp - a.score_xp);
-      if (sorted[0].score_xp > sorted[1].score_xp) {
+      const sorted = [...teams].sort(
+        (a, b) => b.score_baskets - a.score_baskets,
+      );
+      if (sorted[0].score_baskets > sorted[1].score_baskets) {
         winnerTeamId = sorted[0].id;
       } else {
         winnerTeamId = null;
@@ -1242,10 +1403,14 @@ export class RoundService {
 
     const scores = teams.reduce(
       (acc, t) => {
-        acc[t.id] = { xp: t.score_xp, baskets: t.score_baskets };
+        acc[t.id] = {
+          xp: t.score_xp,
+          baskets: t.score_baskets,
+          scoreVs: 3 * t.score_baskets,
+        };
         return acc;
       },
-      {} as Record<string, { xp: number; baskets: number }>,
+      {} as Record<string, { xp: number; baskets: number; scoreVs: number }>,
     );
 
     const kindness = teams.reduce(

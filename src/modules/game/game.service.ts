@@ -2,7 +2,6 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import {
   JoinRequestStatus,
   MatchMode,
-  MatchPhase,
   TicketStatus,
 } from 'prisma/generated/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -12,6 +11,7 @@ import {
   JoinQueueDto,
   UpdateEligibilityConfigDto,
 } from './dto/game.dto';
+import { MatchmakingService } from './matchmaking.service';
 import { QueueService } from './queue.service';
 
 @Injectable()
@@ -20,6 +20,7 @@ export class GameService {
     private readonly prisma: PrismaService,
     private readonly progressService: ProgressService,
     private readonly queueService: QueueService,
+    private readonly matchmaking: MatchmakingService,
   ) {}
 
   async getEligibility(userId: string) {
@@ -30,7 +31,20 @@ export class GameService {
       throw new HttpException('User not found', HttpStatus.NOT_FOUND);
     }
 
-    const result = await this.progressService.eligibilityFor(userId);
+    const [eligibility, shots] = await Promise.all([
+      this.progressService.eligibilityFor(userId),
+      this.prisma.gameShootout.aggregate({
+        where: { shooter: { user_id: userId } },
+        _sum: { xp_awarded: true },
+      }),
+    ]);
+    const result = {
+      ...eligibility,
+      progress: {
+        ...eligibility.progress,
+        basketballXp: shots._sum.xp_awarded ?? 0,
+      },
+    };
 
     return {
       success: true,
@@ -169,64 +183,21 @@ export class GameService {
         HttpStatus.BAD_REQUEST,
       );
     }
-    const classId = user.memberships?.[0]?.class_id ?? null;
-
-    if (dto.mode === MatchMode.SINGLE) {
-      const match = await this.prisma.gameMatch.create({
-        data: {
-          school_id: schoolId,
-          mode: MatchMode.SINGLE,
-          phase: MatchPhase.COUNTDOWN,
-          class_id: classId,
-          teams: {
-            create: {
-              label: 'Single Player',
-              score_xp: 0,
-              score_kindness: 0,
-              score_baskets: 0,
-            },
-          },
-        },
-        include: {
-          teams: true,
-        },
-      });
-
-      const team = match.teams[0];
-
-      await this.prisma.gameParticipant.create({
-        data: {
-          match_id: match.id,
-          team_id: team.id,
-          user_id: userId,
-          is_bot: false,
-          jersey_number: 1,
-          hero_id: user.selected_hero_id ?? null,
-          is_connected: true,
-          power_used: false,
-        },
-      });
-
-      const ticket = await this.prisma.matchmakingTicket.create({
-        data: {
-          user_id: userId,
-          mode: MatchMode.SINGLE,
-          status: TicketStatus.MATCHED,
-          match_id: match.id,
-        },
-      });
-
-      const resultData = {
-        ticketId: ticket.id,
-        matchId: match.id,
-        mode: dto.mode,
-      };
-
-      return {
-        success: true,
-        data: resultData,
-        ...resultData,
-      };
+    const fixtureCode =
+      dto.mode === MatchMode.SINGLE &&
+      process.env.GAME_FIXTURES === '1' &&
+      typeof dto.fixtureCode === 'string' &&
+      /^[a-z0-9-]{1,30}$/i.test(dto.fixtureCode)
+        ? dto.fixtureCode.toUpperCase()
+        : undefined;
+    if (dto.mode === MatchMode.SINGLE && !fixtureCode) {
+      const { matchId, ticketId } = await this.matchmaking.createPractice(
+        userId,
+        schoolId,
+        user.selected_hero_id,
+      );
+      const data = { matchId, ticketId, mode: dto.mode };
+      return { success: true, data, ...data };
     }
 
     // MULTIPLAYER (ONE_V_ONE or FIVE_V_FIVE)
@@ -243,7 +214,9 @@ export class GameService {
       userId,
       schoolId,
       mode: dto.mode,
-      fixtureCode: dto.fixtureCode,
+      fixtureCode,
+      nickname: user.nickname,
+      avatarUrl: user.avatar_url,
     });
 
     const resultData: {

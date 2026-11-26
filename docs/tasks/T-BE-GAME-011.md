@@ -1,6 +1,6 @@
 # T-BE-GAME-011 — 5v5 queue, random 5/5, no short starts
 
-**Status:** Not started
+**Status:** Implemented. Ten-player service QA passed using synthetic students.
 **Pair:** `wings_of_power_app/docs/game/tasks/T-GAME-011.md`
 **Phase:** 3
 **Depends on:** T-BE-GAME-010
@@ -49,4 +49,4 @@
 
 ## Notes
 
--
+- Exercised the partial queue, school boundary, 5/5 team split, teammate pass, and a 3–2 vote against a temporary database schema. Device testing used the two available iPhones.

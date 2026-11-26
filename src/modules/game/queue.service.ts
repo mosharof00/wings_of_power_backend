@@ -51,6 +51,15 @@ export class QueueService {
     this.notify(player.mode);
   }
 
+  restore(players: QueuedPlayer[]): void {
+    for (const player of players) {
+      const queue = this.queues.get(player.mode);
+      if (queue && !queue.some((other) => other.userId === player.userId)) {
+        queue.unshift(player);
+      }
+    }
+  }
+
   isQueued(userId: string): boolean {
     for (const list of this.queues.values()) {
       if (list.some((p) => p.userId === userId)) {
@@ -84,13 +93,28 @@ export class QueueService {
     return [...(this.queues.get(mode) ?? [])];
   }
 
-  dequeueCandidates(mode: MatchMode, count: number): QueuedPlayer[] {
+  dequeueCandidates(
+    mode: MatchMode,
+    count: number,
+    schoolId?: string,
+    fixtureCode?: string,
+  ): QueuedPlayer[] {
     const list = this.queues.get(mode) ?? [];
-    if (list.length < count) {
-      return [];
-    }
-    const candidates = list.slice(0, count);
-    this.queues.set(mode, list.slice(count));
+    const schoolPlayers =
+      schoolId === undefined
+        ? list
+        : list.filter(
+            (player) =>
+              player.schoolId === schoolId &&
+              player.fixtureCode === fixtureCode,
+          );
+    if (schoolPlayers.length < count) return [];
+    const candidates = schoolPlayers.slice(0, count);
+    const tickets = new Set(candidates.map((candidate) => candidate.ticketId));
+    this.queues.set(
+      mode,
+      list.filter((player) => !tickets.has(player.ticketId)),
+    );
     this.notify(mode);
     return candidates;
   }

@@ -16,6 +16,9 @@ describe('RoundService', () => {
 
   beforeEach(async () => {
     prisma = {
+      $transaction: jest.fn((action: (tx: typeof prisma) => unknown) =>
+        action(prisma),
+      ),
       gameMatch: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
@@ -26,6 +29,7 @@ describe('RoundService', () => {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       gameParticipant: {
         findUnique: jest.fn(),
@@ -138,9 +142,13 @@ describe('RoundService', () => {
 
       const firstBuzz = await service.buzz('round-buzz-1', 'part-1');
       expect(firstBuzz.participantId).toBe('part-1');
-      expect(prisma.gameRound.update).toHaveBeenCalledWith(
+      expect(prisma.gameRound.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'round-buzz-1' },
+          where: {
+            id: 'round-buzz-1',
+            phase: GameRoundPhase.BUZZ,
+            buzz_winner_id: null,
+          },
           data: expect.objectContaining({
             buzz_winner_id: 'part-1',
             phase: GameRoundPhase.ANSWER,
@@ -268,18 +276,10 @@ describe('RoundService', () => {
         },
       });
 
-      // Second submission: ledger entry already exists
-      prisma.pointsLedger.findFirst.mockResolvedValue({
-        id: 'ledger-existing',
-      });
-
-      const res2 = await service.submitQ2Answer(
-        'round-q2',
-        'part-1',
-        'Updated answer',
-      );
-
-      expect(res2.kindnessDelta).toBe(0);
+      prisma.gameAnswer.findFirst.mockResolvedValue({ id: 'existing-answer' });
+      await expect(
+        service.submitQ2Answer('round-q2', 'part-1', 'Updated answer'),
+      ).rejects.toThrow(/already submitted/i);
       // Still only 1 create call in total
       expect(prisma.pointsLedger.create).toHaveBeenCalledTimes(1);
     });
@@ -291,6 +291,7 @@ describe('RoundService', () => {
       const mockRoundMulti = {
         id: 'round-q4-multi',
         match_id: 'match-multi',
+        buzz_winner_id: 'p1',
         round_type: RoundType.Q4_FINALS,
         phase: GameRoundPhase.VOTE,
         deadline_at: new Date(Date.now() + 15000),
@@ -419,6 +420,7 @@ describe('RoundService', () => {
       const roundWithDisconnected = {
         id: 'round-q4-disc',
         match_id: 'match-disc',
+        buzz_winner_id: 'p1',
         round_type: RoundType.Q4_FINALS,
         phase: GameRoundPhase.VOTE,
         match: {
@@ -628,6 +630,7 @@ describe('RoundService', () => {
     it('second power:use is rejected', async () => {
       const mockParticipant = {
         id: 'part-power',
+        match_id: 'match-1',
         user_id: 'user-p',
         power_used: false,
       };
@@ -635,6 +638,10 @@ describe('RoundService', () => {
       prisma.gameParticipant.findUnique.mockResolvedValue(mockParticipant);
       prisma.gameRound.findUnique.mockResolvedValue({
         id: 'round-p',
+        match_id: 'match-1',
+        round_type: RoundType.Q3_HOBBY,
+        phase: GameRoundPhase.ANSWER,
+        buzz_winner_id: 'part-power',
         deadline_at: new Date(Date.now() + 10000),
       });
       prisma.gameParticipant.update.mockResolvedValue({
@@ -668,6 +675,7 @@ describe('RoundService', () => {
     it('Harmony power is rejected in 1v1 mode', async () => {
       const mockParticipant = {
         id: 'p-solo',
+        match_id: 'match-1',
         user_id: 'u-solo',
         team_id: 't-solo',
         power_used: false,
@@ -675,8 +683,10 @@ describe('RoundService', () => {
       prisma.gameParticipant.findUnique.mockResolvedValue(mockParticipant);
       prisma.gameRound.findUnique.mockResolvedValue({
         id: 'round-1v1-harm',
+        match_id: 'match-1',
         round_type: RoundType.Q3_HOBBY,
         phase: GameRoundPhase.ANSWER,
+        buzz_winner_id: 'p-solo',
         match: {
           mode: MatchMode.ONE_V_ONE,
           participants: [mockParticipant],
@@ -850,10 +860,10 @@ describe('RoundService', () => {
       prisma.gameShootout.create.mockResolvedValue({
         id: 'shoot-1',
         made: true,
-        xp_awarded: 3,
+        xp_awarded: 2,
       });
       prisma.gameTeam.findMany.mockResolvedValue([
-        { id: 'team-1', score_xp: 3, score_kindness: 0, score_baskets: 1 },
+        { id: 'team-1', score_xp: 2, score_kindness: 0, score_baskets: 1 },
       ]);
 
       const validSwipe = await service.submitShootoutSwipe(
@@ -862,20 +872,20 @@ describe('RoundService', () => {
         true,
       );
       expect(validSwipe.made).toBe(true);
-      expect(validSwipe.xp).toBe(3);
+      expect(validSwipe.xp).toBe(2);
       expect(prisma.gameShootout.create).toHaveBeenCalledWith({
         data: {
           round_id: 'round-shootout',
           shooter_participant_id: 'designated-shooter',
           made: true,
-          xp_awarded: 3,
-          multiplier: 1,
+          xp_awarded: 2,
+          multiplier: 2,
         },
       });
       expect(prisma.gameTeam.update).toHaveBeenCalledWith({
         where: { id: 'team-1' },
         data: {
-          score_xp: { increment: 3 },
+          score_xp: { increment: 2 },
           score_baskets: { increment: 1 },
         },
       });

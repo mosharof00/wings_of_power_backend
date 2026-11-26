@@ -30,7 +30,7 @@ describe('GameGateway', () => {
       gameMatch: {
         create: jest.fn(),
         update: jest.fn(),
-        updateMany: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         findUnique: jest.fn(),
       },
       gameParticipant: {
@@ -39,6 +39,8 @@ describe('GameGateway', () => {
         update: jest.fn(),
         updateMany: jest.fn(),
       },
+      gameAnswer: { findFirst: jest.fn() },
+      gameTeam: { findMany: jest.fn().mockResolvedValue([]) },
       gameRound: {
         create: jest.fn(),
         findUnique: jest.fn(),
@@ -92,7 +94,7 @@ describe('GameGateway', () => {
   });
 
   afterEach(() => {
-    gateway.clearAllTimers();
+    gateway.onModuleDestroy();
     queueService.clear();
     jest.clearAllMocks();
   });
@@ -456,13 +458,14 @@ describe('GameGateway', () => {
     it('already queued student emits queue:error ALREADY_QUEUED', async () => {
       const mockClient: any = {
         data: {
-          user: { id: 'student-queued' },
+          user: { id: 'student-queued', school_id: 'school-1' },
         },
         emit: jest.fn(),
       };
 
       progressService.eligibilityFor.mockResolvedValue({ eligible: true });
       prisma.matchmakingTicket.findFirst.mockResolvedValue({
+        mode: MatchMode.FIVE_V_FIVE,
         id: 'ticket-existing',
         status: TicketStatus.WAITING,
       });
@@ -471,7 +474,7 @@ describe('GameGateway', () => {
 
       expect(mockClient.emit).toHaveBeenCalledWith('queue:error', {
         code: 'ALREADY_QUEUED',
-        message: 'Already queued for matchmaking',
+        message: 'Leave your current waiting room before joining another.',
       });
       expect(queueService.getQueue(MatchMode.ONE_V_ONE)).toHaveLength(0);
     });
@@ -499,6 +502,7 @@ describe('GameGateway', () => {
       });
       matchmakingService.tryMatch.mockResolvedValue(null);
 
+      await gateway.onModuleInit();
       await gateway.handleQueueJoin(mockClient, { mode: MatchMode.ONE_V_ONE });
 
       expect(prisma.matchmakingTicket.create).toHaveBeenCalledWith({
@@ -509,8 +513,8 @@ describe('GameGateway', () => {
         },
       });
 
-      expect(mockClient.join).toHaveBeenCalledWith('queue:ONE_V_ONE');
-      expect(mockServer.to).toHaveBeenCalledWith('queue:ONE_V_ONE');
+      expect(mockClient.join).toHaveBeenCalledWith('queue:ONE_V_ONE:school-1:');
+      expect(mockServer.to).toHaveBeenCalledWith('queue:ONE_V_ONE:school-1:');
       expect(mockServer.emit).toHaveBeenCalledWith('queue:update', {
         mode: MatchMode.ONE_V_ONE,
         filled: 1,
@@ -528,6 +532,7 @@ describe('GameGateway', () => {
     it('queue:cancel cancels active tickets and broadcasts queue:update', async () => {
       const mockClient: any = {
         data: { userId: 'student-cancelling' },
+        rooms: new Set(['queue:ONE_V_ONE:school-1:']),
         leave: jest.fn(),
       };
 
@@ -548,17 +553,15 @@ describe('GameGateway', () => {
       });
 
       expect(queueService.isQueued('student-cancelling')).toBe(false);
-      expect(mockClient.leave).toHaveBeenCalledWith('queue:ONE_V_ONE');
-      expect(mockClient.leave).toHaveBeenCalledWith('queue:FIVE_V_FIVE');
+      expect(mockClient.leave).toHaveBeenCalledWith(
+        'queue:ONE_V_ONE:school-1:',
+      );
     });
   });
 
   describe('Countdown and Phase Transition', () => {
     it('startCountdown emits match:countdown and advances to PLAYING', async () => {
-      prisma.gameMatch.update.mockResolvedValue({
-        id: 'match-countdown-test',
-        phase: MatchPhase.PLAYING,
-      });
+      prisma.gameMatch.updateMany.mockResolvedValue({ count: 1 });
 
       await gateway.startCountdown('match-countdown-test', 50);
 
@@ -572,8 +575,8 @@ describe('GameGateway', () => {
       // Wait for timer (50ms)
       await new Promise((resolve) => setTimeout(resolve, 80));
 
-      expect(prisma.gameMatch.update).toHaveBeenCalledWith({
-        where: { id: 'match-countdown-test' },
+      expect(prisma.gameMatch.updateMany).toHaveBeenCalledWith({
+        where: { id: 'match-countdown-test', phase: MatchPhase.COUNTDOWN },
         data: {
           phase: MatchPhase.PLAYING,
           started_at: expect.any(Date),

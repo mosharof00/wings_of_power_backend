@@ -36,7 +36,7 @@ export class MatchmakingService {
       case MatchMode.FIVE_V_FIVE:
         return 10;
       case MatchMode.SINGLE:
-        return 1;
+        return 2;
       default:
         return 2;
     }
@@ -45,24 +45,101 @@ export class MatchmakingService {
   async tryMatch(mode: MatchMode): Promise<MatchFoundPayload | null> {
     const required = this.getRequiredPlayerCount(mode);
     const queue = this.queueService.getQueue(mode);
-    if (queue.length < required) {
-      return null;
+    const schools = new Map<string, number>();
+    let matchGroup: QueuedPlayer | undefined;
+    for (const player of queue) {
+      const group = JSON.stringify([player.schoolId, player.fixtureCode]);
+      const count = (schools.get(group) ?? 0) + 1;
+      schools.set(group, count);
+      if (count === required) {
+        matchGroup = player;
+        break;
+      }
     }
+    if (!matchGroup) return null;
 
-    const candidates = this.queueService.dequeueCandidates(mode, required);
-    if (candidates.length < required) {
-      return null;
-    }
+    const candidates = this.queueService.dequeueCandidates(
+      mode,
+      required,
+      matchGroup.schoolId,
+      matchGroup.fixtureCode,
+    );
+    if (candidates.length < required) return null;
 
     try {
       return await this.createMatchFromCandidates(mode, candidates);
     } catch (error) {
-      // Re-enqueue if creation failed unexpectedly
-      for (const candidate of candidates) {
-        this.queueService.enqueue(candidate);
-      }
+      const waiting = await this.prisma.matchmakingTicket.findMany({
+        where: {
+          id: { in: candidates.map((candidate) => candidate.ticketId) },
+          status: TicketStatus.WAITING,
+        },
+        select: { id: true },
+      });
+      const active = new Set(waiting.map((ticket) => ticket.id));
+      this.queueService.restore(
+        candidates.filter((candidate) => active.has(candidate.ticketId)),
+      );
       throw error;
     }
+  }
+
+  async createPractice(
+    userId: string,
+    schoolId: string,
+    heroId?: string | null,
+  ): Promise<{ matchId: string; ticketId: string }> {
+    const match = await this.prisma.$transaction(async (tx) => {
+      const game = await tx.gameMatch.create({
+        data: {
+          school_id: schoolId,
+          phase: MatchPhase.COUNTDOWN,
+          mode: MatchMode.SINGLE,
+          teams: {
+            create: ['Team A', 'Team B'].map((label) => ({
+              label,
+              score_xp: 0,
+              score_kindness: 0,
+              score_baskets: 0,
+            })),
+          },
+        },
+        include: { teams: true },
+      });
+      const humanTeam = game.teams.find((team) => team.label === 'Team A')!;
+      const botTeam = game.teams.find((team) => team.label === 'Team B')!;
+      await tx.gameParticipant.createMany({
+        data: [
+          {
+            match_id: game.id,
+            team_id: humanTeam.id,
+            user_id: userId,
+            hero_id: heroId ?? null,
+            jersey_number: 1,
+            is_connected: true,
+            power_used: false,
+          },
+          {
+            match_id: game.id,
+            team_id: botTeam.id,
+            is_bot: true,
+            jersey_number: 1,
+            is_connected: true,
+            power_used: false,
+          },
+        ],
+      });
+      const ticket = await tx.matchmakingTicket.create({
+        data: {
+          user_id: userId,
+          mode: MatchMode.SINGLE,
+          status: TicketStatus.MATCHED,
+          match_id: game.id,
+        },
+      });
+      return { matchId: game.id, ticketId: ticket.id };
+    });
+    return match;
   }
 
   private async createMatchFromCandidates(
@@ -90,83 +167,90 @@ export class MatchmakingService {
     const teamACandidates = shuffled.slice(0, half);
     const teamBCandidates = shuffled.slice(half);
 
-    const match = await this.prisma.gameMatch.create({
-      data: {
-        school_id: schoolId,
-        mode,
-        phase: MatchPhase.COUNTDOWN,
-        started_at: new Date(),
-        teams: {
-          create: [
-            {
-              label: 'Team A',
-              score_xp: 0,
-              score_kindness: 0,
-              score_baskets: 0,
+    const { match, teamA, teamB } = await this.prisma.$transaction(
+      async (tx) => {
+        const match = await tx.gameMatch.create({
+          data: {
+            school_id: schoolId,
+            mode,
+            phase: MatchPhase.QUEUED,
+            teams: {
+              create: [
+                {
+                  label: 'Team A',
+                  score_xp: 0,
+                  score_kindness: 0,
+                  score_baskets: 0,
+                },
+                {
+                  label: 'Team B',
+                  score_xp: 0,
+                  score_kindness: 0,
+                  score_baskets: 0,
+                },
+              ],
             },
-            {
-              label: 'Team B',
-              score_xp: 0,
-              score_kindness: 0,
-              score_baskets: 0,
+          },
+          include: {
+            teams: true,
+          },
+        });
+
+        const teamA = match.teams.find((t) => t.label === 'Team A')!;
+        const teamB = match.teams.find((t) => t.label === 'Team B')!;
+
+        // Create participants for Team A
+        for (let i = 0; i < teamACandidates.length; i++) {
+          const c = teamACandidates[i];
+          const u = userMap.get(c.userId);
+          await tx.gameParticipant.create({
+            data: {
+              match_id: match.id,
+              team_id: teamA.id,
+              user_id: c.userId,
+              is_bot: false,
+              jersey_number: i + 1,
+              hero_id: u?.selected_hero_id ?? null,
+              is_connected: true,
+              power_used: false,
             },
-          ],
-        },
-      },
-      include: {
-        teams: true,
-      },
-    });
+          });
+        }
 
-    const teamA = match.teams.find((t) => t.label === 'Team A')!;
-    const teamB = match.teams.find((t) => t.label === 'Team B')!;
+        // Create participants for Team B
+        for (let i = 0; i < teamBCandidates.length; i++) {
+          const c = teamBCandidates[i];
+          const u = userMap.get(c.userId);
+          await tx.gameParticipant.create({
+            data: {
+              match_id: match.id,
+              team_id: teamB.id,
+              user_id: c.userId,
+              is_bot: false,
+              jersey_number: i + 1,
+              hero_id: u?.selected_hero_id ?? null,
+              is_connected: true,
+              power_used: false,
+            },
+          });
+        }
 
-    // Create participants for Team A
-    for (let i = 0; i < teamACandidates.length; i++) {
-      const c = teamACandidates[i];
-      const u = userMap.get(c.userId);
-      await this.prisma.gameParticipant.create({
-        data: {
-          match_id: match.id,
-          team_id: teamA.id,
-          user_id: c.userId,
-          is_bot: false,
-          jersey_number: i + 1,
-          hero_id: u?.selected_hero_id ?? null,
-          is_connected: true,
-          power_used: false,
-        },
-      });
-    }
-
-    // Create participants for Team B
-    for (let i = 0; i < teamBCandidates.length; i++) {
-      const c = teamBCandidates[i];
-      const u = userMap.get(c.userId);
-      await this.prisma.gameParticipant.create({
-        data: {
-          match_id: match.id,
-          team_id: teamB.id,
-          user_id: c.userId,
-          is_bot: false,
-          jersey_number: i + 1,
-          hero_id: u?.selected_hero_id ?? null,
-          is_connected: true,
-          power_used: false,
-        },
-      });
-    }
-
-    // Update tickets to MATCHED
-    await this.prisma.matchmakingTicket.updateMany({
-      where: {
-        id: { in: candidates.map((c) => c.ticketId) },
+        // Update tickets to MATCHED
+        const tickets = await tx.matchmakingTicket.updateMany({
+          where: {
+            id: { in: candidates.map((c) => c.ticketId) },
+            status: TicketStatus.WAITING,
+          },
+          data: {
+            status: TicketStatus.MATCHED,
+            match_id: match.id,
+          },
+        });
+        if (tickets.count !== candidates.length)
+          throw new Error('A player left the queue while a match was forming');
+        return { match, teamA, teamB };
       },
-      data: {
-        status: TicketStatus.MATCHED,
-        match_id: match.id,
-      },
-    });
+    );
 
     return {
       matchId: match.id,

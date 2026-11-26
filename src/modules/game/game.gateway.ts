@@ -1,4 +1,9 @@
-import { OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import {
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import {
   ConnectedSocket,
@@ -25,7 +30,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProgressService } from '../progress/progress.service';
 import { MatchFoundPayload, MatchmakingService } from './matchmaking.service';
 import { QueueService } from './queue.service';
-import { RoundService } from './round.service';
+import { FALLBACK_QUESTIONS, RoundService } from './round.service';
+
+const QUARTERS = [
+  RoundType.Q1_WARMUP,
+  RoundType.Q2_DEFENSE,
+  RoundType.Q3_HOBBY,
+  RoundType.Q4_FINALS,
+] as const;
 
 @WebSocketGateway({
   cors: { origin: '*' },
@@ -40,6 +52,28 @@ export class GameGateway
   @WebSocketServer()
   server: Server;
 
+  private readonly logger = new Logger(GameGateway.name);
+  private readonly quarterSizes = new Map<
+    string,
+    Awaited<ReturnType<RoundService['getQuarterSizes']>>
+  >();
+  private readonly quarterResults = new Map<
+    string,
+    Awaited<ReturnType<RoundService['completeRound']>> & {
+      roundNumber: number;
+      deadlineAt: string;
+    }
+  >();
+  private readonly roundActions = new Map<string, Promise<unknown>>();
+  private readonly stealTeams = new Map<string, string>();
+  private readonly botTimers = new Map<string, NodeJS.Timeout>();
+  private readonly disconnectGrace = new Map<string, NodeJS.Timeout>();
+  private readonly presenceTimers = new Map<
+    string,
+    { outcome: string; timer: NodeJS.Timeout }
+  >();
+  private queueSweep?: NodeJS.Timeout;
+  private readonly countdownDeadlines = new Map<string, string>();
   private readonly timers: Map<string, NodeJS.Timeout> = new Map();
   public roundService: RoundService;
 
@@ -57,14 +91,31 @@ export class GameGateway
   async onModuleInit(): Promise<void> {
     await this.cancelStaleMatches();
 
-    this.queueService.onQueueChange(async (mode) => {
-      await this.broadcastQueueUpdate(mode);
-      await this.checkAndRunMatchmaking(mode);
+    await this.prisma.matchmakingTicket.updateMany({
+      where: { status: TicketStatus.WAITING },
+      data: { status: TicketStatus.CANCELLED },
+    });
+    this.queueSweep = setInterval(() => {
+      void this.expireQueue().catch((error: unknown) =>
+        this.logger.error('Queue expiry failed', error),
+      );
+    }, 15000);
+    this.queueSweep.unref();
+    this.queueService.onQueueChange((mode) => {
+      void this.broadcastQueueUpdate(mode)
+        .then(() => this.checkAndRunMatchmaking(mode))
+        .catch((error: unknown) =>
+          this.logger.error('Matchmaking failed', error),
+        );
     });
   }
 
   onModuleDestroy(): void {
     this.clearAllTimers();
+    clearInterval(this.queueSweep);
+    for (const timer of this.disconnectGrace.values()) clearTimeout(timer);
+    for (const timer of this.botTimers.values()) clearTimeout(timer);
+    for (const { timer } of this.presenceTimers.values()) clearTimeout(timer);
   }
 
   async cancelStaleMatches(): Promise<number> {
@@ -81,7 +132,14 @@ export class GameGateway
     return result.count;
   }
 
-  async handleConnection(client: Socket): Promise<void> {
+  handleConnection(client: Socket): Promise<void> {
+    client.data ??= {};
+    const authentication = this.authenticate(client);
+    client.data.authentication = authentication;
+    return authentication;
+  }
+
+  private async authenticate(client: Socket): Promise<void> {
     const rawAuthHeader =
       client.handshake?.headers?.authorization ??
       (client.handshake?.headers?.Authorization as string | undefined);
@@ -134,6 +192,8 @@ export class GameGateway
     client.data.userId = user.id;
 
     await client.join(`user:${user.id}`);
+    clearTimeout(this.disconnectGrace.get(user.id));
+    this.disconnectGrace.delete(user.id);
 
     // Check if player has an open match (reconnect)
     const openParticipant = await this.prisma.gameParticipant.findFirst({
@@ -141,7 +201,9 @@ export class GameGateway
         user_id: user.id,
         left_at: null,
         match: {
-          phase: { in: [MatchPhase.COUNTDOWN, MatchPhase.PLAYING] },
+          phase: {
+            in: [MatchPhase.QUEUED, MatchPhase.COUNTDOWN, MatchPhase.PLAYING],
+          },
         },
       },
       orderBy: { created_at: 'desc' },
@@ -155,30 +217,164 @@ export class GameGateway
       );
       if (snapshot && !('error' in snapshot)) {
         client.emit('match:snapshot', snapshot);
+        if (
+          snapshot.mode === MatchMode.SINGLE &&
+          snapshot.phase === MatchPhase.COUNTDOWN &&
+          !this.countdownDeadlines.has(openParticipant.match_id)
+        ) {
+          await this.startCountdown(openParticipant.match_id);
+        }
+        await this.evaluatePresence(openParticipant.match_id);
       }
     }
   }
 
   async handleDisconnect(client: Socket): Promise<void> {
     const userId = client.data?.userId;
-    if (!userId) {
-      return;
-    }
+    if (!userId || (await this.hasUserSocket(userId))) return;
 
-    if (this.queueService.isQueued(userId)) {
-      this.queueService.removeFromAll(userId);
-      await this.prisma.matchmakingTicket.updateMany({
-        where: { user_id: userId, status: TicketStatus.WAITING },
-        data: { status: TicketStatus.CANCELLED },
-      });
-    }
+    clearTimeout(this.disconnectGrace.get(userId));
+    this.disconnectGrace.set(
+      userId,
+      setTimeout(() => {
+        this.disconnectGrace.delete(userId);
+        void this.markDisconnected(userId).catch((error: unknown) =>
+          this.logger.error('Disconnect recovery failed', error),
+        );
+      }, 15000),
+    );
+  }
 
-    await this.prisma.gameParticipant.updateMany({
+  private async hasUserSocket(userId: string): Promise<boolean> {
+    const sockets = await this.server?.in(`user:${userId}`).fetchSockets?.();
+    return Boolean(sockets?.length);
+  }
+
+  private async markDisconnected(userId: string): Promise<void> {
+    if (await this.hasUserSocket(userId)) return;
+    this.queueService.removeFromAll(userId);
+    await this.prisma.matchmakingTicket.updateMany({
+      where: { user_id: userId, status: TicketStatus.WAITING },
+      data: { status: TicketStatus.CANCELLED },
+    });
+    const active = await this.prisma.gameParticipant.findFirst({
       where: {
         user_id: userId,
-        match: { phase: { in: [MatchPhase.COUNTDOWN, MatchPhase.PLAYING] } },
+        left_at: null,
+        match: {
+          phase: {
+            in: [MatchPhase.QUEUED, MatchPhase.COUNTDOWN, MatchPhase.PLAYING],
+          },
+        },
       },
+    });
+    if (!active) return;
+    await this.prisma.gameParticipant.update({
+      where: { id: active.id },
       data: { is_connected: false },
+    });
+    await this.evaluatePresence(active.match_id);
+  }
+
+  private async expireQueue(): Promise<void> {
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    for (const mode of Object.values(MatchMode)) {
+      for (const player of this.queueService.getQueue(mode)) {
+        if (player.enqueuedAt.getTime() > cutoff) continue;
+        const expired = await this.prisma.matchmakingTicket.updateMany({
+          where: { id: player.ticketId, status: TicketStatus.WAITING },
+          data: { status: TicketStatus.CANCELLED },
+        });
+        if (!expired.count) continue;
+        this.queueService.removeByTicketId(player.ticketId);
+        this.server?.to(`user:${player.userId}`).emit('queue:error', {
+          code: 'EXPIRED',
+          message: 'No match was found. You can join again anytime.',
+        });
+      }
+    }
+  }
+
+  private async evaluatePresence(matchId: string): Promise<void> {
+    const match = await this.prisma.gameMatch.findUnique({
+      where: { id: matchId },
+      include: { participants: true },
+    });
+    if (!match) return;
+    const online = match.participants.filter(
+      (seat) => !seat.left_at && seat.is_connected,
+    );
+    const teams = new Set(online.map((seat) => seat.team_id));
+    const connectedHumans = online.filter((seat) => !seat.is_bot);
+    if (match.phase === MatchPhase.QUEUED) {
+      if (online.length < match.participants.length)
+        await this.cancelReadyRoom(matchId);
+      return;
+    }
+    if (match.phase !== MatchPhase.PLAYING) return;
+
+    const activeTimer = this.presenceTimers.get(matchId);
+    let outcome: string | undefined;
+    if (!connectedHumans.length) {
+      outcome = 'empty';
+    } else if (match.mode !== MatchMode.SINGLE && teams.size === 1) {
+      outcome = online[0].team_id;
+    }
+    if (activeTimer && activeTimer.outcome === outcome) return;
+    if (activeTimer) clearTimeout(activeTimer.timer);
+    this.presenceTimers.delete(matchId);
+    if (!outcome) return;
+
+    const duration =
+      match.mode === MatchMode.FIVE_V_FIVE && outcome !== 'empty' ? 0 : 60000;
+    const timer = setTimeout(() => {
+      this.presenceTimers.delete(matchId);
+      void this.finishAbandonedMatch(matchId, outcome).catch((error: unknown) =>
+        this.logger.error('Could not settle abandoned match', error),
+      );
+    }, duration);
+    this.presenceTimers.set(matchId, { outcome, timer });
+  }
+
+  private async finishAbandonedMatch(
+    matchId: string,
+    outcome?: string,
+  ): Promise<void> {
+    this.clearTimer(matchId);
+    this.clearBotTimer(matchId);
+    clearTimeout(this.presenceTimers.get(matchId)?.timer);
+    this.presenceTimers.delete(matchId);
+    this.quarterSizes.delete(matchId);
+    this.quarterResults.delete(matchId);
+    if (outcome === 'empty') {
+      const cancelled = await this.prisma.gameMatch.updateMany({
+        where: { id: matchId, phase: MatchPhase.PLAYING },
+        data: { phase: MatchPhase.CANCELLED, finished_at: new Date() },
+      });
+      if (cancelled.count)
+        this.server?.to(`match:${matchId}`).emit('match:error', {
+          code: 'MATCH_GONE',
+          message: 'The match ended after both teams left.',
+        });
+      return;
+    }
+    const result = await this.roundService.finishMatch(
+      matchId,
+      outcome ?? null,
+    );
+    this.server?.to(`match:${matchId}`).emit('match:finished', result);
+  }
+
+  private async cancelReadyRoom(matchId: string): Promise<void> {
+    const cancelled = await this.prisma.gameMatch.updateMany({
+      where: { id: matchId, phase: MatchPhase.QUEUED },
+      data: { phase: MatchPhase.CANCELLED, finished_at: new Date() },
+    });
+    if (!cancelled.count) return;
+    this.clearTimer(matchId);
+    this.server?.to(`match:${matchId}`).emit('queue:error', {
+      code: 'ROOM_CLOSED',
+      message: 'A player left the room. Choose a mode to find a new match.',
     });
   }
 
@@ -187,9 +383,14 @@ export class GameGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { mode: MatchMode; fixtureCode?: string },
   ): Promise<void> {
+    await client.data?.authentication;
     const user = client.data?.user;
-    if (!user) {
-      client.disconnect(true);
+    if (!user || client.disconnected) return;
+    if (!Object.values(MatchMode).includes(data?.mode)) {
+      client.emit('queue:error', {
+        code: 'INVALID_MODE',
+        message: 'Choose a basketball play mode.',
+      });
       return;
     }
 
@@ -202,87 +403,77 @@ export class GameGateway
       return;
     }
 
+    const activeMatch = await this.prisma.gameParticipant.findFirst({
+      where: {
+        user_id: user.id,
+        left_at: null,
+        match: {
+          phase: {
+            in: [MatchPhase.QUEUED, MatchPhase.COUNTDOWN, MatchPhase.PLAYING],
+          },
+        },
+      },
+      select: { match_id: true, match: { select: { mode: true } } },
+    });
+    if (activeMatch) {
+      if (activeMatch.match.mode === data.mode) {
+        await this.handleSnapshot(client, { matchId: activeMatch.match_id });
+      } else {
+        client.emit('queue:error', {
+          code: 'ACTIVE_MATCH',
+          message: 'Return to your current play mode to rejoin your match.',
+        });
+      }
+      return;
+    }
+
+    const schoolId = user.school_id ?? user.memberships?.[0]?.class?.school_id;
+    if (!schoolId) {
+      client.emit('queue:error', {
+        code: 'INELIGIBLE',
+        message: 'Join a school before playing.',
+      });
+      return;
+    }
+    const fixtureCode =
+      data.mode === MatchMode.SINGLE &&
+      process.env.GAME_FIXTURES === '1' &&
+      typeof data.fixtureCode === 'string' &&
+      /^[a-z0-9-]{1,30}$/i.test(data.fixtureCode)
+        ? data.fixtureCode.toUpperCase()
+        : undefined;
+    const queueRoom = this.queueRoom(data.mode, schoolId, fixtureCode);
     const activeTicket = await this.prisma.matchmakingTicket.findFirst({
       where: { user_id: user.id, status: TicketStatus.WAITING },
     });
-    if (this.queueService.isQueued(user.id) || activeTicket) {
-      client.emit('queue:error', {
-        code: 'ALREADY_QUEUED',
-        message: 'Already queued for matchmaking',
-      });
+    if (activeTicket) {
+      if (activeTicket.mode !== data.mode) {
+        client.emit('queue:error', {
+          code: 'ALREADY_QUEUED',
+          message: 'Leave your current waiting room before joining another.',
+        });
+      } else {
+        await client.join(queueRoom);
+        await this.broadcastQueueUpdate(data.mode);
+      }
       return;
     }
 
-    const schoolId =
-      user.school_id ?? user.memberships?.[0]?.class?.school_id ?? '';
-
-    if (data.mode === MatchMode.SINGLE) {
-      const match = await this.prisma.gameMatch.create({
-        data: {
-          school_id: schoolId,
-          mode: MatchMode.SINGLE,
-          phase: MatchPhase.COUNTDOWN,
-          started_at: new Date(),
-          teams: {
-            create: {
-              label: 'Single Player',
-              score_xp: 0,
-              score_kindness: 0,
-              score_baskets: 0,
-            },
-          },
-        },
-        include: { teams: true },
-      });
-
-      const team = match.teams[0];
-      await this.prisma.gameParticipant.create({
-        data: {
-          match_id: match.id,
-          team_id: team.id,
-          user_id: user.id,
-          is_bot: false,
-          jersey_number: 1,
-          hero_id: user.selected_hero_id ?? null,
-          is_connected: true,
-          power_used: false,
-        },
-      });
-
-      await this.prisma.matchmakingTicket.create({
-        data: {
-          user_id: user.id,
-          mode: MatchMode.SINGLE,
-          status: TicketStatus.MATCHED,
-          match_id: match.id,
-        },
-      });
-
-      await client.join(`match:${match.id}`);
-
-      const foundPayload: MatchFoundPayload = {
-        matchId: match.id,
-        mode: MatchMode.SINGLE,
-        teams: [
-          {
-            id: team.id,
-            label: 'Single Player',
-            members: [
-              {
-                userId: user.id,
-                nickname: user.nickname,
-                avatarUrl: user.avatar_url,
-                heroId: user.selected_hero_id,
-              },
-            ],
-          },
-        ],
-      };
-
-      client.emit('match:found', foundPayload);
-      await this.startCountdown(match.id);
+    if (data.mode === MatchMode.SINGLE && !fixtureCode) {
+      const { matchId } = await this.matchmakingService.createPractice(
+        user.id,
+        schoolId,
+        user.selected_hero_id,
+      );
+      const snapshot = await this.getSnapshot(user.id, matchId);
+      await client.join(`match:${matchId}`);
+      client.emit('match:found', snapshot);
+      await this.startCountdown(matchId);
       return;
     }
+
+    await client.join(queueRoom);
+    if (client.disconnected) return;
 
     const ticket = await this.prisma.matchmakingTicket.create({
       data: {
@@ -292,19 +483,23 @@ export class GameGateway
       },
     });
 
+    if (client.disconnected || (client.rooms && !client.rooms.has(queueRoom))) {
+      await this.prisma.matchmakingTicket.updateMany({
+        where: { id: ticket.id, status: TicketStatus.WAITING },
+        data: { status: TicketStatus.CANCELLED },
+      });
+      return;
+    }
+
     this.queueService.enqueue({
       ticketId: ticket.id,
       userId: user.id,
       schoolId,
       mode: data.mode,
-      fixtureCode: data.fixtureCode,
+      fixtureCode,
       nickname: user.nickname,
       avatarUrl: user.avatar_url,
     });
-
-    await client.join(`queue:${data.mode}`);
-    await this.broadcastQueueUpdate(data.mode);
-    await this.checkAndRunMatchmaking(data.mode);
   }
 
   @SubscribeMessage('queue:cancel')
@@ -314,6 +509,10 @@ export class GameGateway
       return;
     }
 
+    for (const room of client.rooms ?? []) {
+      if (room.startsWith('queue:')) await client.leave(room);
+    }
+
     await this.prisma.matchmakingTicket.updateMany({
       where: { user_id: userId, status: TicketStatus.WAITING },
       data: { status: TicketStatus.CANCELLED },
@@ -321,35 +520,41 @@ export class GameGateway
 
     this.queueService.removeFromAll(userId);
 
-    client.leave(`queue:${MatchMode.ONE_V_ONE}`);
-    client.leave(`queue:${MatchMode.FIVE_V_FIVE}`);
-
     await this.broadcastQueueUpdate(MatchMode.ONE_V_ONE);
     await this.broadcastQueueUpdate(MatchMode.FIVE_V_FIVE);
   }
 
+  private queueRoom(
+    mode: MatchMode,
+    schoolId: string,
+    fixtureCode?: string,
+  ): string {
+    return `queue:${mode}:${schoolId}:${fixtureCode ?? ''}`;
+  }
+
   async broadcastQueueUpdate(mode: MatchMode): Promise<void> {
-    if (mode === MatchMode.SINGLE) {
-      return;
-    }
-    const queue = this.queueService.getQueue(mode);
+    const rooms = new Map<
+      string,
+      { userId: string; nickname: string | null; avatarUrl: string | null }[]
+    >();
     const required = this.matchmakingService.getRequiredPlayerCount(mode);
-
-    const players = queue.map((p) => ({
-      userId: p.userId,
-      nickname: p.nickname ?? null,
-      avatarUrl: p.avatarUrl ?? null,
-    }));
-
-    const payload = {
-      mode,
-      filled: queue.length,
-      required,
-      players,
-    };
-
-    if (this.server) {
-      this.server.to(`queue:${mode}`).emit('queue:update', payload);
+    for (const player of this.queueService.getQueue(mode)) {
+      const room = this.queueRoom(mode, player.schoolId, player.fixtureCode);
+      const players = rooms.get(room) ?? [];
+      players.push({
+        userId: player.userId,
+        nickname: player.nickname ?? null,
+        avatarUrl: player.avatarUrl ?? null,
+      });
+      rooms.set(room, players);
+    }
+    for (const [room, players] of rooms) {
+      this.server?.to(room).emit('queue:update', {
+        mode,
+        filled: players.length,
+        required,
+        players,
+      });
     }
   }
 
@@ -375,10 +580,42 @@ export class GameGateway
         }
       }
 
-      this.server.to(`match:${matchId}`).emit('match:found', matchResult);
+      this.server.to(`match:${matchId}`).emit('match:found', {
+        ...matchResult,
+        phase: MatchPhase.QUEUED,
+      });
     }
 
-    await this.startCountdown(matchId);
+    this.setTimer(
+      matchId,
+      setTimeout(() => {
+        void this.startReadyMatch(matchId).catch((error: unknown) =>
+          this.logger.error('Could not start the ready match', error),
+        );
+      }, 20000),
+    );
+  }
+
+  @SubscribeMessage('match:start')
+  async handleStart(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { matchId: string },
+  ): Promise<void> {
+    await client.data?.authentication;
+    const userId = client.data?.userId;
+    if (!userId || !data?.matchId) return;
+    const participant = await this.prisma.gameParticipant.findFirst({
+      where: { match_id: data.matchId, user_id: userId, left_at: null },
+    });
+    if (participant) await this.startReadyMatch(data.matchId);
+  }
+
+  private async startReadyMatch(matchId: string): Promise<void> {
+    const match = await this.prisma.gameMatch.updateMany({
+      where: { id: matchId, phase: MatchPhase.QUEUED },
+      data: { phase: MatchPhase.COUNTDOWN },
+    });
+    if (match.count === 1) await this.startCountdown(matchId);
   }
 
   async startCountdown(
@@ -386,6 +623,7 @@ export class GameGateway
     durationMs: number = 3000,
   ): Promise<void> {
     const deadlineAt = new Date(Date.now() + durationMs).toISOString();
+    this.countdownDeadlines.set(matchId, deadlineAt);
 
     if (this.server) {
       this.server.to(`match:${matchId}`).emit('match:countdown', {
@@ -399,6 +637,7 @@ export class GameGateway
 
     const timer = setTimeout(async () => {
       this.clearTimer(matchId);
+      this.countdownDeadlines.delete(matchId);
       await this.advanceToPlaying(matchId);
     }, durationMs);
 
@@ -406,14 +645,17 @@ export class GameGateway
   }
 
   async advanceToPlaying(matchId: string): Promise<void> {
-    await this.prisma.gameMatch.update({
-      where: { id: matchId },
+    const changed = await this.prisma.gameMatch.updateMany({
+      where: { id: matchId, phase: MatchPhase.COUNTDOWN },
       data: {
         phase: MatchPhase.PLAYING,
         started_at: new Date(),
       },
     });
 
+    if (!changed.count) return;
+
+    await this.evaluatePresence(matchId);
     if (this.server) {
       this.server.to(`match:${matchId}`).emit('match:phase', {
         matchId,
@@ -422,94 +664,159 @@ export class GameGateway
     }
 
     if (this.roundService) {
-      await this.startNextRound(matchId).catch(() => {});
+      await this.startNextRound(matchId).catch((error: unknown) =>
+        this.logger.error('Could not open the first quarter', error),
+      );
+    }
+  }
+
+  private async runRoundAction<T>(
+    roundId: string,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.roundActions.get(roundId);
+    const next = (previous ?? Promise.resolve()).catch(() => {}).then(action);
+    this.roundActions.set(roundId, next);
+    try {
+      return await next;
+    } finally {
+      if (this.roundActions.get(roundId) === next)
+        this.roundActions.delete(roundId);
     }
   }
 
   async startNextRound(matchId: string): Promise<void> {
     const match = await this.prisma.gameMatch.findUnique({
       where: { id: matchId },
-      include: {
-        rounds: { orderBy: { number: 'asc' } },
-        teams: true,
+      include: { rounds: { orderBy: { number: 'asc' } } },
+    });
+    if (
+      match?.phase !== MatchPhase.PLAYING ||
+      match.rounds.some((round) => round.phase !== GameRoundPhase.COMPLETE)
+    )
+      return;
+
+    let sizes = this.quarterSizes.get(matchId);
+    if (!sizes) {
+      sizes = await this.roundService.getQuarterSizes(matchId);
+      this.quarterSizes.set(matchId, sizes);
+    }
+    for (const type of QUARTERS) {
+      const index =
+        match.rounds.filter((round) => round.round_type === type).length + 1;
+      if (index > sizes[type]) continue;
+
+      const { round, question, durationMs } =
+        await this.roundService.createRound(
+          matchId,
+          type,
+          match.rounds.length + 1,
+          index,
+          index === 1,
+        );
+      if (index === 1) {
+        this.server
+          ?.to(`match:${matchId}`)
+          .emit('round:intro', this.roundIntro(type, round.deadline_at));
+      } else {
+        this.server
+          ?.to(`match:${matchId}`)
+          .emit(
+            'round:question',
+            this.roundService.toClientQuestion(
+              round.id,
+              question,
+              index,
+              sizes[type],
+              round.deadline_at!.toISOString(),
+            ),
+          );
+      }
+      this.scheduleRoundTimer(matchId, round.id, durationMs);
+      if (round.phase === GameRoundPhase.BUZZ)
+        await this.scheduleBotBuzz(matchId, round.id);
+      return;
+    }
+
+    this.quarterSizes.delete(matchId);
+    clearTimeout(this.presenceTimers.get(matchId)?.timer);
+    this.presenceTimers.delete(matchId);
+    const result = await this.roundService.finishMatch(matchId);
+    this.server?.to(`match:${matchId}`).emit('match:finished', result);
+  }
+
+  private roundIntro(type: RoundType, deadline: Date | null) {
+    const copy: Record<RoundType, [string, string]> = {
+      Q1_WARMUP: [
+        'Warm-Up Hoops',
+        'Buzz in first for a chance to answer and take a shot.',
+      ],
+      Q2_DEFENSE: [
+        'Defense Round',
+        'Share what you would do. Every thoughtful response earns Kindness Points.',
+      ],
+      Q3_HOBBY: [
+        'Hobby Hoops',
+        'Answer hobby questions and use your Power Wing to help your team.',
+      ],
+      Q4_FINALS: [
+        'Wings Final',
+        'Buzz in and vote with your team. A correct choice earns a championship shot.',
+      ],
+    };
+    const [title, blurb] = copy[type];
+    return {
+      roundType: type,
+      title,
+      blurb,
+      deadlineAt: deadline?.toISOString(),
+    };
+  }
+
+  @SubscribeMessage('round:intro_ack')
+  async handleIntroAck(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { roundType: RoundType },
+  ): Promise<void> {
+    const userId = client.data?.userId;
+    if (!userId || !data?.roundType) return;
+    const round = await this.prisma.gameRound.findFirst({
+      where: {
+        phase: GameRoundPhase.INTRO,
+        round_type: data.roundType,
+        match: {
+          phase: MatchPhase.PLAYING,
+          participants: { some: { user_id: userId, left_at: null } },
+        },
       },
     });
+    if (round) await this.openQuarter(round.match_id, round.id);
+  }
 
-    if (
-      !match ||
-      match.phase === MatchPhase.FINISHED ||
-      match.phase === MatchPhase.CANCELLED
-    ) {
-      return;
-    }
+  private async openQuarter(matchId: string, roundId: string): Promise<void> {
+    const round = await this.prisma.gameRound.findUnique({
+      where: { id: roundId },
+      include: { question: true },
+    });
+    if (round?.phase !== GameRoundPhase.INTRO) return;
 
-    const roundTypesOrder: RoundType[] = [
-      RoundType.Q1_WARMUP,
-      RoundType.Q2_DEFENSE,
-      RoundType.Q3_HOBBY,
-      RoundType.Q4_FINALS,
-    ];
+    const timing = this.roundService.questionTiming(round.round_type);
+    const deadline = new Date(Date.now() + timing.durationMs);
+    const opened = await this.prisma.gameRound.updateMany({
+      where: { id: roundId, phase: GameRoundPhase.INTRO },
+      data: { phase: timing.phase, deadline_at: deadline },
+    });
+    if (!opened.count) return;
 
-    const completedRoundCount = (match.rounds || []).filter(
-      (r) => r.phase === GameRoundPhase.COMPLETE,
-    ).length;
-
-    if (completedRoundCount >= roundTypesOrder.length) {
-      const finishResult = await this.roundService.finishMatch(matchId);
-      if (this.server) {
-        this.server.to(`match:${matchId}`).emit('match:finished', finishResult);
-      }
-      return;
-    }
-
-    const nextRoundType = roundTypesOrder[completedRoundCount];
-    const roundNumber = completedRoundCount + 1;
-
-    const { round, question, durationMs } = await this.roundService.createRound(
-      matchId,
-      nextRoundType,
-      roundNumber,
+    const question = this.roundService.getSnapshotQuestion(
+      { ...round, deadline_at: deadline },
+      1,
+      this.quarterSizes.get(matchId)?.[round.round_type],
     );
-
-    const titles: Record<RoundType, string> = {
-      [RoundType.Q1_WARMUP]: 'Warm-Up',
-      [RoundType.Q2_DEFENSE]: 'Upstander Defense',
-      [RoundType.Q3_HOBBY]: 'Hobby & Trivia',
-      [RoundType.Q4_FINALS]: 'Championship Finals',
-    };
-
-    const blurbs: Record<RoundType, string> = {
-      [RoundType.Q1_WARMUP]:
-        'Quick-fire anti-bullying trivia. Buzz in first to answer!',
-      [RoundType.Q2_DEFENSE]:
-        'Write your kindness action plan. Non-empty answers earn kindness points!',
-      [RoundType.Q3_HOBBY]: 'Show your passions and unlock your Power Wings!',
-      [RoundType.Q4_FINALS]:
-        'Discuss with your team and vote. Majority wins the shot!',
-    };
-
-    if (this.server) {
-      this.server.to(`match:${matchId}`).emit('round:intro', {
-        roundType: nextRoundType,
-        title: titles[nextRoundType],
-        blurb: blurbs[nextRoundType],
-        deadlineAt: round.deadline_at?.toISOString(),
-      });
-
-      const outboundQuestion = this.roundService.toClientQuestion(
-        round.id,
-        question,
-        roundNumber,
-        roundTypesOrder.length,
-        round.deadline_at?.toISOString() || new Date().toISOString(),
-      );
-
-      this.server
-        .to(`match:${matchId}`)
-        .emit('round:question', outboundQuestion);
-    }
-
-    this.scheduleRoundTimer(matchId, round.id, durationMs);
+    this.server?.to(`match:${matchId}`).emit('round:question', question);
+    this.scheduleRoundTimer(matchId, roundId, timing.durationMs);
+    if (timing.phase === GameRoundPhase.BUZZ)
+      await this.scheduleBotBuzz(matchId, roundId);
   }
 
   scheduleRoundTimer(
@@ -517,53 +824,308 @@ export class GameGateway
     roundId: string,
     durationMs: number,
   ): void {
+    this.setTimer(
+      matchId,
+      setTimeout(() => {
+        this.timers.delete(matchId);
+        void this.runRoundAction(roundId, () =>
+          this.handleRoundTimeout(matchId, roundId),
+        ).catch((error: unknown) =>
+          this.logger.error('Could not advance game timer', error),
+        );
+      }, durationMs),
+    );
+  }
+
+  @SubscribeMessage('round:advance')
+  async handleRoundAdvance(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { matchId: string; roundId: string },
+  ): Promise<void> {
+    const userId = client.data?.userId;
+    if (
+      !userId ||
+      !data?.matchId ||
+      !data.roundId ||
+      this.quarterResults.get(data.matchId)?.roundId !== data.roundId
+    )
+      return;
+    const participant = await this.prisma.gameParticipant.findFirst({
+      where: { match_id: data.matchId, user_id: userId, left_at: null },
+    });
+    if (participant) await this.advanceQuarter(data.matchId, data.roundId);
+  }
+
+  private async advanceQuarter(
+    matchId: string,
+    roundId: string,
+  ): Promise<void> {
+    if (this.quarterResults.get(matchId)?.roundId !== roundId) return;
+    this.quarterResults.delete(matchId);
     this.clearTimer(matchId);
+    await this.startNextRound(matchId);
+  }
 
-    const timer = setTimeout(async () => {
-      this.clearTimer(matchId);
-      await this.handleRoundTimeout(matchId, roundId);
-    }, durationMs);
+  private async finishQuestion(
+    matchId: string,
+    roundId: string,
+    pauseMs = 0,
+  ): Promise<void> {
+    this.clearTimer(matchId);
+    this.stealTeams.delete(roundId);
+    this.clearBotTimer(matchId);
+    const result = await this.roundService.completeRound(roundId);
+    const played = await this.prisma.gameRound.count({
+      where: { match_id: matchId, round_type: result.roundType },
+    });
+    const total = this.quarterSizes.get(matchId)?.[result.roundType] ?? 1;
+    const advance = async () => {
+      if (played < total) {
+        await this.startNextRound(matchId);
+        return;
+      }
+      const resultDuration = 12000;
+      const summary = {
+        ...result,
+        roundNumber: QUARTERS.indexOf(result.roundType) + 1,
+        deadlineAt: new Date(Date.now() + resultDuration).toISOString(),
+      };
+      this.quarterResults.set(matchId, summary);
+      this.server?.to(`match:${matchId}`).emit('round:complete', summary);
+      this.setTimer(
+        matchId,
+        setTimeout(() => {
+          void this.advanceQuarter(matchId, roundId).catch((error: unknown) =>
+            this.logger.error('Could not advance the quarter', error),
+          );
+        }, resultDuration),
+      );
+    };
+    if (pauseMs) {
+      this.setTimer(
+        matchId,
+        setTimeout(() => {
+          void advance().catch((error: unknown) =>
+            this.logger.error('Could not finish the question', error),
+          );
+        }, pauseMs),
+      );
+    } else {
+      await advance();
+    }
+  }
 
-    this.setTimer(matchId, timer);
+  private async handleDefenseProgress(
+    matchId: string,
+    roundId: string,
+    timedOut = false,
+  ): Promise<void> {
+    const players = await this.prisma.gameParticipant.findMany({
+      where: { match_id: matchId, is_bot: false, left_at: null },
+    });
+    const answers = await this.prisma.gameAnswer.findMany({
+      where: { round_id: roundId },
+      orderBy: { submitted_at: 'asc' },
+    });
+    if (
+      !timedOut &&
+      players.some(
+        (player) =>
+          !answers.some((answer) => answer.participant_id === player.id),
+      )
+    )
+      return;
+    const shooter = answers.find(
+      (answer) =>
+        answer.is_correct &&
+        players.some(
+          (player) =>
+            player.id === answer.participant_id && player.is_connected,
+        ),
+    );
+    if (shooter) {
+      await this.openShootout(matchId, roundId, shooter.participant_id);
+    } else {
+      await this.finishQuestion(matchId, roundId);
+    }
+  }
+
+  private async openShootout(
+    matchId: string,
+    roundId: string,
+    shooterId: string,
+  ): Promise<void> {
+    const shootout = await this.roundService.startShootout(roundId, shooterId);
+    this.server?.to(`match:${matchId}`).emit('shootout:start', shootout);
+    this.scheduleRoundTimer(matchId, roundId, 60000);
+    const shooter = await this.prisma.gameParticipant.findUnique({
+      where: { id: shooterId },
+      select: { is_bot: true },
+    });
+    if (shooter?.is_bot) {
+      this.setBotTimer(matchId, roundId, 2500, async () => {
+        const result = await this.roundService.submitShootoutSwipe(
+          roundId,
+          shooterId,
+          true,
+        );
+        this.server?.to(`match:${matchId}`).emit('shootout:result', result);
+        await this.finishQuestion(matchId, roundId, 1600);
+      });
+    }
+  }
+
+  private async openSteal(
+    matchId: string,
+    roundId: string,
+    losingTeamId: string,
+  ): Promise<void> {
+    if (this.stealTeams.has(roundId)) {
+      await this.finishQuestion(matchId, roundId, 1400);
+      return;
+    }
+    const opponent = await this.prisma.gameTeam.findFirst({
+      where: {
+        match_id: matchId,
+        id: { not: losingTeamId },
+        participants: { some: { is_connected: true, left_at: null } },
+      },
+    });
+    if (!opponent) {
+      await this.finishQuestion(matchId, roundId, 1400);
+      return;
+    }
+    const deadline = new Date(Date.now() + 10000);
+    this.stealTeams.set(roundId, opponent.id);
+    await this.prisma.gameRound.update({
+      where: { id: roundId },
+      data: {
+        phase: GameRoundPhase.BUZZ,
+        buzz_winner_id: null,
+        deadline_at: deadline,
+      },
+    });
+    this.server?.to(`match:${matchId}`).emit('round:steal_open', {
+      roundId,
+      eligibleTeamId: opponent.id,
+      deadlineAt: deadline.toISOString(),
+    });
+    this.scheduleRoundTimer(matchId, roundId, 10000);
+    await this.scheduleBotBuzz(matchId, roundId, opponent.id);
   }
 
   async handleRoundTimeout(matchId: string, roundId: string): Promise<void> {
     const round = await this.prisma.gameRound.findUnique({
       where: { id: roundId },
+      include: { buzz_winner: true },
     });
-
-    if (!round || round.phase === GameRoundPhase.COMPLETE) {
+    if (!round || round.phase === GameRoundPhase.COMPLETE) return;
+    if (round.deadline_at && round.deadline_at.getTime() > Date.now()) {
+      this.scheduleRoundTimer(
+        matchId,
+        roundId,
+        round.deadline_at.getTime() - Date.now(),
+      );
       return;
     }
 
-    if (
-      round.phase === GameRoundPhase.BUZZ ||
-      round.phase === GameRoundPhase.ANSWER
-    ) {
-      const complete = await this.roundService.completeRound(roundId);
-      if (this.server) {
-        this.server.to(`match:${matchId}`).emit('round:complete', complete);
-      }
-      await this.startNextRound(matchId);
+    if (round.phase === GameRoundPhase.INTRO) {
+      await this.openQuarter(matchId, roundId);
     } else if (round.phase === GameRoundPhase.VOTE) {
       await this.resolveVoteAndAdvance(matchId, roundId);
+    } else if (
+      round.phase === GameRoundPhase.ANSWER &&
+      round.round_type === RoundType.Q2_DEFENSE
+    ) {
+      await this.handleDefenseProgress(matchId, roundId, true);
+    } else if (round.phase === GameRoundPhase.ANSWER && round.buzz_winner) {
+      await this.openSteal(matchId, roundId, round.buzz_winner.team_id);
     } else if (round.phase === GameRoundPhase.SHOOTOUT) {
-      const result = await this.roundService
-        .submitShootoutSwipe(roundId, round.buzz_winner_id || '', false)
-        .catch(() => ({ made: false, xp: 0, teamScores: {} }));
-      if (this.server) {
-        this.server.to(`match:${matchId}`).emit('shootout:result', {
-          made: false,
-          xp: 0,
-          teamScores: result.teamScores,
-        });
-      }
-      const complete = await this.roundService.completeRound(roundId);
-      if (this.server) {
-        this.server.to(`match:${matchId}`).emit('round:complete', complete);
-      }
-      await this.startNextRound(matchId);
+      const scores = await this.roundService.getTeamScores(matchId);
+      this.server
+        ?.to(`match:${matchId}`)
+        .emit('shootout:result', { made: false, xp: 0, teamScores: scores });
+      await this.finishQuestion(matchId, roundId, 1400);
+    } else {
+      await this.finishQuestion(matchId, roundId);
     }
+  }
+
+  private clearBotTimer(matchId: string): void {
+    clearTimeout(this.botTimers.get(matchId));
+    this.botTimers.delete(matchId);
+  }
+
+  private setBotTimer(
+    matchId: string,
+    roundId: string,
+    delay: number,
+    action: () => Promise<void>,
+  ): void {
+    this.clearBotTimer(matchId);
+    this.botTimers.set(
+      matchId,
+      setTimeout(() => {
+        this.botTimers.delete(matchId);
+        void this.runRoundAction(roundId, action).catch((error: unknown) =>
+          this.logger.warn('Practice turn could not advance: ' + String(error)),
+        );
+      }, delay),
+    );
+  }
+
+  private async scheduleBotBuzz(
+    matchId: string,
+    roundId: string,
+    stealTeam?: string,
+  ): Promise<void> {
+    const bot = await this.prisma.gameParticipant.findFirst({
+      where: {
+        match_id: matchId,
+        is_bot: true,
+        ...(stealTeam ? { team_id: stealTeam } : {}),
+      },
+    });
+    if (!bot) return;
+    this.setBotTimer(matchId, roundId, stealTeam ? 3000 : 7000, async () => {
+      const round = await this.prisma.gameRound.findUnique({
+        where: { id: roundId },
+        include: { question: true, match: true },
+      });
+      if (
+        round?.phase !== GameRoundPhase.BUZZ ||
+        round.match.phase !== MatchPhase.PLAYING
+      )
+        return;
+
+      const buzz = await this.roundService.buzz(roundId, bot.id);
+      this.server?.to(`match:${matchId}`).emit('round:buzz_winner', buzz);
+      this.scheduleRoundTimer(matchId, roundId, buzz.durationMs);
+      this.setBotTimer(matchId, roundId, 2000, async () => {
+        const question = round.question
+          ? this.roundService.parsePackQuestion(round.question)
+          : FALLBACK_QUESTIONS[round.round_type];
+        if (round.round_type === RoundType.Q4_FINALS) {
+          if (question.correctIndex !== undefined) {
+            await this.roundService.recordVote(
+              roundId,
+              bot.id,
+              question.correctIndex,
+            );
+          }
+          await this.resolveVoteAndAdvance(matchId, roundId);
+          return;
+        }
+        const answer = await this.roundService.submitAnswer(
+          roundId,
+          bot.id,
+          question.correctIndex,
+        );
+        this.server?.to(`match:${matchId}`).emit('round:answer_result', answer);
+        if (answer.correct) await this.openShootout(matchId, roundId, bot.id);
+        else await this.finishQuestion(matchId, roundId, 1400);
+      });
+    });
   }
 
   @SubscribeMessage('round:buzz')
@@ -575,48 +1137,60 @@ export class GameGateway
     if (!userId || !data?.roundId) return;
 
     try {
-      const participant = await this.prisma.gameParticipant.findFirst({
-        where: {
-          user_id: userId,
-          match: { rounds: { some: { id: data.roundId } } },
-        },
-      });
-      if (!participant) {
-        client.emit('error', {
-          code: 'FORBIDDEN',
-          message: 'Participant not in match',
+      await this.runRoundAction(data.roundId, async () => {
+        const participant = await this.prisma.gameParticipant.findFirst({
+          where: {
+            user_id: userId,
+            match: { rounds: { some: { id: data.roundId } } },
+          },
         });
-        return;
-      }
-
-      const buzzResult = await this.roundService.buzz(
-        data.roundId,
-        participant.id,
-      );
-
-      const match = await this.prisma.gameMatch.findFirst({
-        where: { rounds: { some: { id: data.roundId } } },
-        include: { participants: true },
-      });
-
-      if (this.server && match) {
-        this.server
-          .to(`match:${match.id}`)
-          .emit('round:buzz_winner', buzzResult);
-
-        for (const p of match.participants) {
-          if (p.id !== participant.id && p.user_id) {
-            const reason =
-              p.team_id === participant.team_id ? 'TEAMMATE' : 'OPPONENT';
-            this.server.to(`user:${p.user_id}`).emit('round:waiting', {
-              roundId: data.roundId,
-              reason,
-            });
-          }
+        if (
+          !participant ||
+          participant.left_at ||
+          participant.is_connected === false
+        ) {
+          client.emit('error', {
+            code: 'FORBIDDEN',
+            message: 'Participant not in match',
+          });
+          return;
         }
 
-        this.scheduleRoundTimer(match.id, data.roundId, 10000);
-      }
+        const eligibleTeam = this.stealTeams.get(data.roundId);
+        if (eligibleTeam && eligibleTeam !== participant.team_id) return;
+        const buzzResult = await this.roundService.buzz(
+          data.roundId,
+          participant.id,
+        );
+
+        const match = await this.prisma.gameMatch.findFirst({
+          where: { rounds: { some: { id: data.roundId } } },
+          include: { participants: true },
+        });
+
+        if (this.server && match) {
+          this.server
+            .to(`match:${match.id}`)
+            .emit('round:buzz_winner', buzzResult);
+
+          for (const p of match.participants) {
+            if (p.id !== participant.id && p.user_id) {
+              const reason =
+                p.team_id === participant.team_id ? 'TEAMMATE' : 'OPPONENT';
+              this.server.to(`user:${p.user_id}`).emit('round:waiting', {
+                roundId: data.roundId,
+                reason,
+              });
+            }
+          }
+
+          this.scheduleRoundTimer(
+            match.id,
+            data.roundId,
+            buzzResult.durationMs,
+          );
+        }
+      });
     } catch (err: any) {
       client.emit('error', {
         code: err.code || 'FORBIDDEN',
@@ -635,75 +1209,67 @@ export class GameGateway
     if (!userId || !data?.roundId) return;
 
     try {
-      const round = await this.prisma.gameRound.findUnique({
-        where: { id: data.roundId },
-        include: { match: { include: { participants: true } } },
-      });
-      if (!round) {
-        client.emit('error', {
-          code: 'NOT_FOUND',
-          message: 'Round not found',
+      await this.runRoundAction(data.roundId, async () => {
+        const round = await this.prisma.gameRound.findUnique({
+          where: { id: data.roundId },
+          include: { match: { include: { participants: true } } },
         });
-        return;
-      }
+        if (!round) {
+          client.emit('error', {
+            code: 'NOT_FOUND',
+            message: 'Round not found',
+          });
+          return;
+        }
 
-      const participant = round.match.participants.find(
-        (p) => p.user_id === userId,
-      );
-      if (!participant) {
-        client.emit('error', {
-          code: 'FORBIDDEN',
-          message: 'Participant not in match',
-        });
-        return;
-      }
-
-      let answerResult: any;
-      if (round.round_type === RoundType.Q2_DEFENSE) {
-        answerResult = await this.roundService.submitQ2Answer(
-          data.roundId,
-          participant.id,
-          data.freeText,
+        const participant = round.match.participants.find(
+          (p) => p.user_id === userId,
         );
-      } else {
-        answerResult = await this.roundService.submitAnswer(
-          data.roundId,
-          participant.id,
-          data.optionIndex,
-        );
-      }
+        if (
+          !participant ||
+          participant.left_at ||
+          participant.is_connected === false
+        ) {
+          client.emit('error', {
+            code: 'FORBIDDEN',
+            message: 'Participant not in match',
+          });
+          return;
+        }
 
-      if (this.server) {
-        this.server
-          .to(`match:${round.match_id}`)
-          .emit('round:answer_result', answerResult);
-      }
-
-      if (
-        round.round_type === RoundType.Q1_WARMUP ||
-        round.round_type === RoundType.Q3_HOBBY
-      ) {
-        if (answerResult.correct) {
-          const shoot = await this.roundService.startShootout(
+        let answerResult: any;
+        if (round.round_type === RoundType.Q2_DEFENSE) {
+          answerResult = await this.roundService.submitQ2Answer(
             data.roundId,
             participant.id,
+            data.freeText,
           );
-          if (this.server) {
-            this.server
-              .to(`match:${round.match_id}`)
-              .emit('shootout:start', shoot);
-          }
-          this.scheduleRoundTimer(round.match_id, data.roundId, 60000);
         } else {
-          const complete = await this.roundService.completeRound(data.roundId);
-          if (this.server) {
-            this.server
-              .to(`match:${round.match_id}`)
-              .emit('round:complete', complete);
-          }
-          await this.startNextRound(round.match_id);
+          answerResult = await this.roundService.submitAnswer(
+            data.roundId,
+            participant.id,
+            data.optionIndex,
+          );
         }
-      }
+
+        if (this.server) {
+          this.server
+            .to(`match:${round.match_id}`)
+            .emit('round:answer_result', answerResult);
+        }
+
+        if (round.round_type === RoundType.Q2_DEFENSE) {
+          await this.handleDefenseProgress(round.match_id, data.roundId);
+        } else if (answerResult.correct) {
+          await this.openShootout(round.match_id, data.roundId, participant.id);
+        } else {
+          await this.openSteal(
+            round.match_id,
+            data.roundId,
+            participant.team_id,
+          );
+        }
+      });
     } catch (err: any) {
       client.emit('error', {
         code: err.code || 'FORBIDDEN',
@@ -727,20 +1293,20 @@ export class GameGateway
       this.server.to(`match:${matchId}`).emit('round:vote_result', voteResult);
     }
     if (voteResult.correct && voteResult.designatedShooterId) {
-      const shoot = await this.roundService.startShootout(
-        roundId,
-        voteResult.designatedShooterId,
+      this.setTimer(
+        matchId,
+        setTimeout(() => {
+          void this.openShootout(
+            matchId,
+            roundId,
+            voteResult.designatedShooterId!,
+          ).catch((error: unknown) =>
+            this.logger.error('Could not start the final shot', error),
+          );
+        }, 2300),
       );
-      if (this.server) {
-        this.server.to(`match:${matchId}`).emit('shootout:start', shoot);
-      }
-      this.scheduleRoundTimer(matchId, roundId, 60000);
     } else {
-      const complete = await this.roundService.completeRound(roundId);
-      if (this.server) {
-        this.server.to(`match:${matchId}`).emit('round:complete', complete);
-      }
-      await this.startNextRound(matchId);
+      await this.finishQuestion(matchId, roundId, 2300);
     }
   }
 
@@ -759,7 +1325,11 @@ export class GameGateway
           match: { rounds: { some: { id: data.roundId } } },
         },
       });
-      if (!participant) {
+      if (
+        !participant ||
+        participant.left_at ||
+        participant.is_connected === false
+      ) {
         client.emit('error', {
           code: 'FORBIDDEN',
           message: 'Participant not in match',
@@ -814,41 +1384,47 @@ export class GameGateway
     if (!userId || !data?.roundId) return;
 
     try {
-      const participant = await this.prisma.gameParticipant.findFirst({
-        where: {
-          user_id: userId,
-          match: { rounds: { some: { id: data.roundId } } },
-        },
-      });
-      if (!participant) {
-        client.emit('error', {
-          code: 'FORBIDDEN',
-          message: 'Participant not in match',
+      await this.runRoundAction(data.roundId, async () => {
+        const participant = await this.prisma.gameParticipant.findFirst({
+          where: {
+            user_id: userId,
+            match: { rounds: { some: { id: data.roundId } } },
+          },
         });
-        return;
-      }
-
-      const voteUpdate = await this.roundService.recordVote(
-        data.roundId,
-        participant.id,
-        data.optionIndex,
-      );
-
-      const round = await this.prisma.gameRound.findUnique({
-        where: { id: data.roundId },
-      });
-
-      if (this.server && round) {
-        this.server.to(`match:${round.match_id}`).emit('round:vote_update', {
-          roundId: voteUpdate.roundId,
-          submittedCount: voteUpdate.submittedCount,
-          teamSize: voteUpdate.teamSize,
-        });
-
-        if (voteUpdate.allVoted) {
-          await this.resolveVoteAndAdvance(round.match_id, data.roundId);
+        if (
+          !participant ||
+          participant.left_at ||
+          participant.is_connected === false
+        ) {
+          client.emit('error', {
+            code: 'FORBIDDEN',
+            message: 'Participant not in match',
+          });
+          return;
         }
-      }
+
+        const voteUpdate = await this.roundService.recordVote(
+          data.roundId,
+          participant.id,
+          data.optionIndex,
+        );
+
+        const round = await this.prisma.gameRound.findUnique({
+          where: { id: data.roundId },
+        });
+
+        if (this.server && round) {
+          this.server.to(`match:${round.match_id}`).emit('round:vote_update', {
+            roundId: voteUpdate.roundId,
+            submittedCount: voteUpdate.submittedCount,
+            teamSize: voteUpdate.teamSize,
+          });
+
+          if (voteUpdate.allVoted) {
+            await this.resolveVoteAndAdvance(round.match_id, data.roundId);
+          }
+        }
+      });
     } catch (err: any) {
       client.emit('error', {
         code: err.code || 'FORBIDDEN',
@@ -866,35 +1442,52 @@ export class GameGateway
     if (!userId || !data?.roundId || !data?.powerCode) return;
 
     try {
-      const participant = await this.prisma.gameParticipant.findFirst({
-        where: {
-          user_id: userId,
-          match: { rounds: { some: { id: data.roundId } } },
-        },
-      });
-      if (!participant) {
-        client.emit('error', {
-          code: 'FORBIDDEN',
-          message: 'Participant not in match',
+      await this.runRoundAction(data.roundId, async () => {
+        const participant = await this.prisma.gameParticipant.findFirst({
+          where: {
+            user_id: userId,
+            match: { rounds: { some: { id: data.roundId } } },
+          },
         });
-        return;
-      }
+        if (
+          !participant ||
+          participant.left_at ||
+          participant.is_connected === false
+        ) {
+          client.emit('error', {
+            code: 'FORBIDDEN',
+            message: 'Participant not in match',
+          });
+          return;
+        }
 
-      const powerResult = await this.roundService.usePower(
-        data.roundId,
-        participant.id,
-        data.powerCode,
-      );
+        const powerResult = await this.roundService.usePower(
+          data.roundId,
+          participant.id,
+          data.powerCode,
+        );
 
-      const round = await this.prisma.gameRound.findUnique({
-        where: { id: data.roundId },
+        const round = await this.prisma.gameRound.findUnique({
+          where: { id: data.roundId },
+        });
+
+        if (this.server && round) {
+          // Other players see the effect and timer change without seeing the private hint.
+          const room = this.server.to(`match:${round.match_id}`);
+          const privateEffect = ['hint', 'weights', 'removedOptions'].includes(
+            powerResult.effect.type,
+          );
+          if (privateEffect) {
+            client.emit('power:effect', powerResult);
+            client.to(`match:${round.match_id}`).emit('power:effect', {
+              ...powerResult,
+              effect: { type: powerResult.effect.type },
+            });
+          } else {
+            room.emit('power:effect', powerResult);
+          }
+        }
       });
-
-      if (this.server && round) {
-        this.server
-          .to(`match:${round.match_id}`)
-          .emit('power:effect', powerResult);
-      }
     } catch (err: any) {
       client.emit('error', {
         code: err.code || 'FORBIDDEN',
@@ -918,7 +1511,11 @@ export class GameGateway
           match: { rounds: { some: { id: data.roundId } } },
         },
       });
-      if (!participant) {
+      if (
+        !participant ||
+        participant.left_at ||
+        participant.is_connected === false
+      ) {
         client.emit('error', {
           code: 'FORBIDDEN',
           message: 'Participant not in match',
@@ -993,42 +1590,43 @@ export class GameGateway
     if (!userId || !data?.roundId) return;
 
     try {
-      const participant = await this.prisma.gameParticipant.findFirst({
-        where: {
-          user_id: userId,
-          match: { rounds: { some: { id: data.roundId } } },
-        },
-      });
-      if (!participant) {
-        client.emit('error', {
-          code: 'FORBIDDEN',
-          message: 'Participant not in match',
+      await this.runRoundAction(data.roundId, async () => {
+        const participant = await this.prisma.gameParticipant.findFirst({
+          where: {
+            user_id: userId,
+            match: { rounds: { some: { id: data.roundId } } },
+          },
         });
-        return;
-      }
+        if (
+          !participant ||
+          participant.left_at ||
+          participant.is_connected === false
+        ) {
+          client.emit('error', {
+            code: 'FORBIDDEN',
+            message: 'Participant not in match',
+          });
+          return;
+        }
 
-      const swipeResult = await this.roundService.submitShootoutSwipe(
-        data.roundId,
-        participant.id,
-        data.made,
-      );
+        const swipeResult = await this.roundService.submitShootoutSwipe(
+          data.roundId,
+          participant.id,
+          data.made,
+        );
 
-      const round = await this.prisma.gameRound.findUnique({
-        where: { id: data.roundId },
+        const round = await this.prisma.gameRound.findUnique({
+          where: { id: data.roundId },
+        });
+
+        if (this.server && round) {
+          this.server
+            .to(`match:${round.match_id}`)
+            .emit('shootout:result', swipeResult);
+
+          await this.finishQuestion(round.match_id, data.roundId, 1600);
+        }
       });
-
-      if (this.server && round) {
-        this.server
-          .to(`match:${round.match_id}`)
-          .emit('shootout:result', swipeResult);
-
-        this.clearTimer(round.match_id);
-        const complete = await this.roundService.completeRound(data.roundId);
-        this.server
-          .to(`match:${round.match_id}`)
-          .emit('round:complete', complete);
-        await this.startNextRound(round.match_id);
-      }
     } catch (err: any) {
       client.emit('error', {
         code: err.code || 'FORBIDDEN',
@@ -1060,10 +1658,10 @@ export class GameGateway
   async handleLeave(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { matchId: string },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const userId = client.data?.userId;
     if (!userId || !data?.matchId) {
-      return;
+      return false;
     }
 
     const participant = await this.prisma.gameParticipant.findFirst({
@@ -1083,7 +1681,7 @@ export class GameGateway
     });
 
     if (!participant) {
-      return;
+      return false;
     }
 
     await this.prisma.gameParticipant.update({
@@ -1096,12 +1694,28 @@ export class GameGateway
 
     await client.leave(`match:${data.matchId}`);
 
+    if (participant.match.phase === MatchPhase.QUEUED) {
+      await this.cancelReadyRoom(data.matchId);
+      return true;
+    }
+
+    if (
+      participant.match.mode === MatchMode.SINGLE &&
+      (participant.match.phase === MatchPhase.PLAYING ||
+        participant.match.phase === MatchPhase.COUNTDOWN)
+    ) {
+      await this.finishAbandonedMatch(data.matchId);
+      return true;
+    }
+
     if (this.server) {
       this.server.to(`match:${data.matchId}`).emit('match:peer_left', {
         userId: participant.user_id,
         nickname: participant.user?.nickname ?? null,
       });
     }
+    await this.evaluatePresence(data.matchId);
+    return true;
   }
 
   @SubscribeMessage('match:snapshot')
@@ -1118,7 +1732,9 @@ export class GameGateway
           user_id: userId,
           left_at: null,
           match: {
-            phase: { in: [MatchPhase.COUNTDOWN, MatchPhase.PLAYING] },
+            phase: {
+              in: [MatchPhase.QUEUED, MatchPhase.COUNTDOWN, MatchPhase.PLAYING],
+            },
           },
         },
         orderBy: { created_at: 'desc' },
@@ -1163,6 +1779,7 @@ export class GameGateway
         teams: true,
         participants: {
           include: {
+            hero: { select: { power_code: true } },
             user: {
               select: {
                 id: true,
@@ -1217,80 +1834,130 @@ export class GameGateway
       data: { is_connected: true },
     });
 
-    const teams = match.teams.map((t) => ({
-      id: t.id,
-      label: t.label,
-      scoreXp: t.score_xp,
-      scoreKindness: t.score_kindness,
-      scoreBaskets: t.score_baskets,
-      members: match.participants
-        .filter((p) => p.team_id === t.id)
-        .map((p) => ({
-          userId: p.user_id,
-          nickname: p.user?.nickname ?? null,
-          avatarUrl: p.user?.avatar_url ?? null,
-          heroId: p.hero_id,
-          jerseyNumber: p.jersey_number,
-          isConnected: p.is_connected,
-          leftAt: p.left_at,
-          powerUsed: p.power_used,
-        })),
-    }));
+    const teams = [...match.teams]
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map((t) => ({
+        id: t.id,
+        label: t.label,
+        scoreXp: t.score_xp,
+        scoreKindness: t.score_kindness,
+        scoreBaskets: t.score_baskets,
+        members: match.participants
+          .filter((p) => p.team_id === t.id)
+          .map((p) => ({
+            id: p.id,
+            userId: p.user_id,
+            isBot: p.is_bot,
+            nickname: p.user?.nickname ?? (p.is_bot ? 'Practice Bot' : null),
+            avatarUrl: p.user?.avatar_url ?? null,
+            heroId: p.hero_id,
+            powerCode: p.hero?.power_code,
+            jerseyNumber: p.jersey_number,
+            isConnected: p.id === participant.id || p.is_connected,
+            leftAt: p.left_at,
+            powerUsed: p.power_used,
+          })),
+      }));
 
+    const scoresForClient = await this.roundService.getTeamScores(matchId);
     const you = {
       participantId: participant.id,
       canBuzz: false,
       powerUsed: participant.power_used,
       heroId: participant.hero_id,
+      powerCode: participant.hero?.power_code,
       jerseyNumber: participant.jersey_number,
     };
-
-    const scores = match.teams.reduce(
-      (acc, t) => {
-        acc[t.id] = {
-          xp: t.score_xp,
-          kindness: t.score_kindness,
-          baskets: t.score_baskets,
-        };
-        return acc;
-      },
-      {} as Record<string, { xp: number; kindness: number; baskets: number }>,
-    );
 
     if (match.phase === MatchPhase.FINISHED) {
       return {
         matchId: match.id,
-        phase: MatchPhase.FINISHED,
+        mode: match.mode,
+        phase: match.phase,
         serverNow: new Date().toISOString(),
         teams,
         you,
-        scores,
+        winnerTeamId: match.winner_team_id,
+        scores: scoresForClient,
+        kindness: Object.fromEntries(
+          teams.map((team) => [team.id, team.scoreKindness]),
+        ),
       };
     }
 
-    const currentRound =
-      match.rounds.find((r) => r.phase !== 'COMPLETE') ??
-      match.rounds[match.rounds.length - 1];
-
-    let questionPayload: any = null;
-    if (currentRound && this.roundService) {
-      questionPayload =
-        await this.roundService.getSnapshotQuestion(currentRound);
+    const round = match.rounds.find(
+      (item) => item.phase !== GameRoundPhase.COMPLETE,
+    );
+    const sizes = this.quarterSizes.get(matchId);
+    const index = round
+      ? match.rounds.filter(
+          (item) =>
+            item.round_type === round.round_type && item.number <= round.number,
+        ).length
+      : 1;
+    const buzzer =
+      round &&
+      match.participants.find((seat) => seat.id === round.buzz_winner_id);
+    const eligibleTeam = round && this.stealTeams.get(round.id);
+    const submitted = round
+      ? await this.prisma.gameAnswer.findFirst({
+          where: { round_id: round.id, participant_id: participant.id },
+          select: { id: true },
+        })
+      : null;
+    const deadlineAt =
+      round?.deadline_at?.toISOString() ??
+      this.countdownDeadlines.get(match.id);
+    let questionPayload: ReturnType<
+      RoundService['getSnapshotQuestion']
+    > | null = null;
+    if (round && round.phase !== GameRoundPhase.INTRO) {
+      questionPayload = this.roundService.getSnapshotQuestion(
+        round,
+        index,
+        sizes?.[round.round_type],
+      );
     }
+    you.canBuzz =
+      round?.phase === GameRoundPhase.BUZZ &&
+      (!eligibleTeam || eligibleTeam === participant.team_id);
 
     return {
       matchId: match.id,
+      mode: match.mode,
       phase: match.phase,
-      roundType: currentRound?.round_type ?? null,
-      roundId: currentRound?.id ?? null,
-      deadlineAt: currentRound?.deadline_at
-        ? currentRound.deadline_at.toISOString()
+      roundPhase: round?.phase ?? null,
+      roundType: round?.round_type ?? null,
+      roundId: round?.id ?? null,
+      deadlineAt: deadlineAt ?? null,
+      intro:
+        round?.phase === GameRoundPhase.INTRO
+          ? this.roundIntro(round.round_type, round.deadline_at)
+          : null,
+      roundComplete: this.quarterResults.get(matchId) ?? null,
+      buzzWinner: buzzer
+        ? {
+            participantId: buzzer.id,
+            userId: buzzer.user_id,
+            teamId: buzzer.team_id,
+          }
         : null,
+      shootout:
+        round?.phase === GameRoundPhase.SHOOTOUT && buzzer
+          ? {
+              roundId: round.id,
+              shooterParticipantId: buzzer.id,
+              deadlineAt,
+              multiplier: round.round_type === RoundType.Q4_FINALS ? 3 : 2,
+            }
+          : null,
+      submitted: Boolean(submitted),
+      eligibleTeamId: eligibleTeam ?? null,
       serverNow: new Date().toISOString(),
       teams,
       question: questionPayload ?? null,
       you,
-      scores,
+      scores: scoresForClient,
     };
   }
 
