@@ -169,6 +169,11 @@ describe('SeedCommand and buildSeedPlan', () => {
         hero: {
           upsert: jest.fn().mockResolvedValue({ id: 'hero-1' }),
         },
+        storyTheme: {
+          upsert: jest.fn().mockImplementation(({ where, create }) =>
+            Promise.resolve({ id: `theme-${where?.slug ?? 'default'}`, ...create }),
+          ),
+        },
         badge: {
           upsert: jest.fn().mockResolvedValue({ id: 'badge-1' }),
         },
